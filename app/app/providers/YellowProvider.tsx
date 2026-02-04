@@ -1,9 +1,11 @@
 "use client";
 
 import React, { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import { useAccount, useWalletClient } from "wagmi";
 import {
   deposit as sdkDeposit,
   openChannel as sdkOpenChannel,
+  signSessionMessage,
   withdraw as sdkWithdraw,
 } from "../lib/yellowClient";
 
@@ -30,6 +32,8 @@ export function YellowProvider({ children }: YellowProviderProps) {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [unifiedBalance, setUnifiedBalance] = useState(18.4);
+  const { address } = useAccount();
+  const { data: walletClient } = useWalletClient();
 
   useEffect(() => {
     const socket = new WebSocket(CLEARNODE_URL);
@@ -46,15 +50,21 @@ export function YellowProvider({ children }: YellowProviderProps) {
   }, []);
 
   const messageSigner = useCallback(async (payload: string) => {
-    // TODO: Sync with messageSigner pattern from experiments/yellow/index.ts
-    // Replace with wallet-based signer (EIP-712 / personal_sign).
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    return `mock_signature_${btoa(payload).slice(0, 16)}`;
+    return signSessionMessage(payload);
   }, []);
 
   const openChannel = useCallback(async () => {
-    return sdkOpenChannel({ clearnodeUrl: CLEARNODE_URL });
-  }, []);
+    if (!walletClient || !address) {
+      throw new Error("Connect a wallet before opening a channel.");
+    }
+    return sdkOpenChannel({
+      clearnodeUrl: CLEARNODE_URL,
+      walletClient,
+      address,
+      application: "Yellow Auction",
+      scope: "auction.app",
+    });
+  }, [walletClient, address]);
 
   const deposit = useCallback(async (amount: number) => {
     await sdkDeposit(amount);
