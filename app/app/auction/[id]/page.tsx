@@ -10,23 +10,25 @@ import {
   Wallet,
   Waves,
 } from "lucide-react";
-import { useAuction } from "../../hooks/useAuction";
+import { useAuctionSession } from "../../hooks/useAuctionSession";
 
 export default function AuctionDetailPage() {
-  const { price, formattedTime, timeLeft, lastBidder, history, bid } =
-    useAuction({
-      startingPrice: 0.05,
-      startingTime: 15,
-    });
+  const {
+    currentPrice,
+    formattedTime,
+    timeLeft,
+    lastBidder,
+    history,
+    placeBid,
+  } = useAuctionSession("aurora");
   const [isSigning, setIsSigning] = useState(false);
 
-  const handleBid = () => {
+  const handleBid = async () => {
     if (isSigning) return;
     setIsSigning(true);
-    setTimeout(() => {
-      bid();
-      setIsSigning(false);
-    }, 900);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await placeBid();
+    setIsSigning(false);
   };
 
   return (
@@ -66,7 +68,7 @@ export default function AuctionDetailPage() {
                     Current Price
                   </p>
                   <p className="mt-2 text-3xl font-semibold text-white">
-                    ${price.toFixed(2)}
+                    ${currentPrice.toFixed(2)}
                   </p>
                 </div>
                 <div>
@@ -74,7 +76,7 @@ export default function AuctionDetailPage() {
                     Last Bidder
                   </p>
                   <p className="mt-2 font-mono text-sm text-amber-200">
-                    {lastBidder}
+                    {lastBidder ?? "—"}
                   </p>
                 </div>
               </div>
@@ -166,13 +168,15 @@ export default function AuctionDetailPage() {
                 >
                   <div>
                     <p className="text-sm font-semibold text-white">
-                      ${entry.price.toFixed(2)} bid
+                      ${(entry.state?.currentPrice ?? 0).toFixed(2)} bid
                     </p>
                     <p className="text-xs font-mono text-amber-200">
-                      {entry.bidder}
+                      {entry.state?.lastBidder ?? "—"}
                     </p>
                   </div>
-                  <div className="text-xs text-zinc-400">{entry.time}</div>
+                  <div className="text-xs text-zinc-400">
+                    v{entry.version ?? 0}
+                  </div>
                 </motion.div>
               ))}
             </AnimatePresence>

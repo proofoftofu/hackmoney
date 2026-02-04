@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
+import { YellowProvider } from "./providers/YellowProvider";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
@@ -77,9 +78,11 @@ export default function RootLayout({
             </div>
           </header>
 
-          <main className="relative z-10 mx-auto w-full max-w-6xl px-6 py-10">
-            {children}
-          </main>
+          <YellowProvider>
+            <main className="relative z-10 mx-auto w-full max-w-6xl px-6 py-10">
+              {children}
+            </main>
+          </YellowProvider>
         </div>
       </body>
     </html>
