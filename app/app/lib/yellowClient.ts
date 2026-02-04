@@ -53,6 +53,10 @@ const ensureBrowser = () => {
   }
 };
 
+const log = (...args: unknown[]) => {
+  console.log("[yellowClient]", ...args);
+};
+
 const waitForOpen = (ws: WebSocket) =>
   new Promise<void>((resolve, reject) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -119,9 +123,11 @@ const fetchConfig = async (
   ws: WebSocket,
   sessionSigner: ReturnType<typeof createECDSAMessageSigner>
 ) => {
+  log("Requesting config...");
   const configMsg = await createGetConfigMessage(sessionSigner);
   ws.send(configMsg);
   const response = await waitForResponse(ws, ["get_config", "config"]);
+  log("Config received.");
   return (response?.res?.[2] ?? {}) as Config;
 };
 
@@ -142,17 +148,22 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
   ensureBrowser();
 
   if (activeSession?.channelId) {
+    log("Reusing active channel:", activeSession.channelId);
     return activeSession.channelId;
   }
 
   const chainId = config.walletClient.chain?.id ?? sepolia.id;
+  log("Opening channel on chain:", chainId);
 
   const sessionPrivateKey = generatePrivateKey();
   const sessionAccount = privateKeyToAccount(sessionPrivateKey);
   const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
+  log("Generated session key:", sessionAccount.address);
 
   const ws = new WebSocket(config.clearnodeUrl);
+  log("Connecting to clearnode:", config.clearnodeUrl);
   await waitForOpen(ws);
+  log("Clearnode connected.");
 
   const sessionState: SessionState = {
     ws,
@@ -168,6 +179,7 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
 
   sessionState.config = await fetchConfig(ws, sessionSigner);
   sessionState.token = resolveToken(sessionState.config, chainId);
+  log("Resolved token:", sessionState.token);
 
   const authParams = {
     session_key: sessionState.sessionAddress,
@@ -189,6 +201,7 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
     ...authParams,
   });
 
+  log("Sending auth_request...");
   ws.send(authRequest);
 
   const challenge = await waitForResponse(ws, "auth_challenge");
@@ -196,6 +209,7 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
   if (!challengeMessage) {
     throw new Error("Missing auth challenge from Yellow.");
   }
+  log("Received auth_challenge.");
 
   const authSigner = createEIP712AuthMessageSigner(
     config.walletClient,
@@ -208,14 +222,17 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
     challengeMessage
   );
 
+  log("Sending auth_verify (EIP-712)...");
   ws.send(verifyMsg);
   await waitForResponse(ws, "auth_verify");
+  log("Authenticated.");
 
   const ledgerMsg = await createGetLedgerBalancesMessage(
     sessionSigner,
     config.address,
     Date.now()
   );
+  log("Requesting ledger balances (channels)...");
   ws.send(ledgerMsg);
   const channelsResp = await waitForResponse(ws, "channels");
   const channels = channelsResp?.res?.[2]?.channels ?? [];
@@ -223,10 +240,12 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
 
   if (openChannel?.channel_id) {
     sessionState.channelId = openChannel.channel_id as `0x${string}`;
+    log("Found open channel:", sessionState.channelId);
     activeSession = sessionState;
     return sessionState.channelId;
   }
 
+  log("No open channel. Creating new channel...");
   const createChannel = await createCreateChannelMessage(sessionSigner, {
     chain_id: chainId,
     token: sessionState.token,
@@ -240,12 +259,14 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
   }
 
   sessionState.channelId = channelId;
+  log("Channel created:", channelId);
   activeSession = sessionState;
   return channelId;
 }
 
 export async function signSessionMessage(payload: string): Promise<string> {
   const session = ensureSession();
+  log("Signing session payload.");
   return session.sessionSigner(payload);
 }
 
@@ -255,6 +276,7 @@ export async function deposit(amount: number): Promise<void> {
   const rounded = Math.max(0, Math.round(amount * 100));
   if (rounded === 0) return;
 
+  log("Depositing (allocate_amount):", rounded);
   const resizeMsg = await createResizeChannelMessage(session.sessionSigner, {
     channel_id: session.channelId as `0x${string}`,
     allocate_amount: BigInt(rounded),
@@ -263,6 +285,7 @@ export async function deposit(amount: number): Promise<void> {
 
   session.ws.send(resizeMsg);
   await waitForResponse(session.ws, "resize_channel");
+  log("Deposit confirmed.");
 }
 
 export async function withdraw(amount: number): Promise<void> {

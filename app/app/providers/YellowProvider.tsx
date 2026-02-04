@@ -38,13 +38,24 @@ export function YellowProvider({ children }: YellowProviderProps) {
   useEffect(() => {
     const socket = new WebSocket(CLEARNODE_URL);
 
-    socket.addEventListener("open", () => setIsConnected(true));
-    socket.addEventListener("close", () => setIsConnected(false));
-    socket.addEventListener("error", () => setIsConnected(false));
+    console.log("[YellowProvider] Connecting WebSocket", CLEARNODE_URL);
+    socket.addEventListener("open", () => {
+      console.log("[YellowProvider] WebSocket connected");
+      setIsConnected(true);
+    });
+    socket.addEventListener("close", () => {
+      console.log("[YellowProvider] WebSocket closed");
+      setIsConnected(false);
+    });
+    socket.addEventListener("error", (event) => {
+      console.warn("[YellowProvider] WebSocket error", event);
+      setIsConnected(false);
+    });
 
     setWs(socket);
 
     return () => {
+      console.log("[YellowProvider] Closing WebSocket");
       socket.close();
     };
   }, []);
@@ -57,6 +68,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
     if (!walletClient || !address) {
       throw new Error("Connect a wallet before opening a channel.");
     }
+    console.log("[YellowProvider] Opening channel for", address);
     return sdkOpenChannel({
       clearnodeUrl: CLEARNODE_URL,
       walletClient,
