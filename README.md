@@ -1,3 +1,13 @@
-# hackathon-hackmoney
+# Penny Auction with Yellow Network
 
-address 2: 0xd801330692189B98a47b4676aa759fD16bB47d02
+![screen-1](./assets/screen-1.png)
+
+## Live App
+
+https://hackmoney-chi.vercel.app/
+
+## Youtube Demo
+
+## Description
+
+## How It Works
