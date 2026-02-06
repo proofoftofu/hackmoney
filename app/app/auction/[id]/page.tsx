@@ -125,6 +125,10 @@ export default function AuctionDetailPage() {
     }
   };
 
+  const handleTryAgain = () => {
+    window.location.reload();
+  };
+
   if (!hasWallet) {
     return (
       <div className="mx-auto max-w-3xl rounded-[32px] border border-white/10 bg-slate-950/80 p-8 text-center shadow-[0_30px_80px_-45px_rgba(250,204,21,0.6)]">
@@ -163,6 +167,29 @@ export default function AuctionDetailPage() {
 
   return (
     <div className="space-y-10">
+      {isClosed && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur">
+          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-slate-950/95 p-8 text-center shadow-[0_30px_80px_-45px_rgba(250,204,21,0.6)]">
+            <p className="text-xs uppercase tracking-[0.3em] text-amber-300">
+              Thank You
+            </p>
+            <h2 className="mt-4 text-3xl font-semibold text-white">
+              Hope you enjoyed penny auction with Yellow Network.
+            </h2>
+            <p className="mt-4 text-sm text-zinc-400">
+              In the hackathon only one user makes bids, but in the real app it
+              would accept multiple users, and it&apos;s going to be fun.
+            </p>
+            <button
+              type="button"
+              onClick={handleTryAgain}
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+            >
+              Try One More Time
+            </button>
+          </div>
+        </div>
+      )}
       <section className="space-y-6">
         <div className="rounded-[32px] border border-white/10 bg-slate-950/80 p-8">
           <div className="flex flex-wrap items-center justify-between gap-6">
