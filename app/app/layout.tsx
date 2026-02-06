@@ -28,7 +28,6 @@ const navItems = [
   { href: "/", label: "Dashboard" },
   { href: "/auction/aurora", label: "Auction" },
   { href: "/create", label: "Create" },
-  { href: "/profile", label: "Profile" },
 ];
 
 export default function RootLayout({

@@ -6,6 +6,7 @@ import {
   detectOpenChannel as sdkDetectOpenChannel,
   deposit as sdkDeposit,
   getActiveSession,
+  getLedgerBalances as sdkGetLedgerBalances,
   openChannel as sdkOpenChannel,
   closeChannel as sdkCloseChannel,
   signSessionMessage,
@@ -19,7 +20,9 @@ type YellowContextValue = {
   channelId: string | null;
   isDetectingChannel: boolean;
   unifiedBalance: number;
-  setUnifiedBalance: (next: number) => void;
+  channelBalance: number;
+  isRefreshingBalances: boolean;
+  refreshBalances: () => Promise<void>;
   authStep: "idle" | "request" | "challenge" | "verify" | "success" | "error";
   authError: string | null;
   messageSigner: (payload: string) => Promise<string>;
@@ -43,7 +46,9 @@ export function YellowProvider({ children }: YellowProviderProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [channelId, setChannelId] = useState<string | null>(null);
   const [isDetectingChannel, setIsDetectingChannel] = useState(false);
-  const [unifiedBalance, setUnifiedBalance] = useState(18.4);
+  const [unifiedBalance, setUnifiedBalance] = useState(0);
+  const [channelBalance, setChannelBalance] = useState(0);
+  const [isRefreshingBalances, setIsRefreshingBalances] = useState(false);
   const [authStep, setAuthStep] = useState<
     "idle" | "request" | "challenge" | "verify" | "success" | "error"
   >("idle");
@@ -66,6 +71,8 @@ export function YellowProvider({ children }: YellowProviderProps) {
       setIsConnected(false);
       setAuthStep("idle");
       setAuthError(null);
+      setUnifiedBalance(0);
+      setChannelBalance(0);
       return;
     }
 
@@ -89,12 +96,26 @@ export function YellowProvider({ children }: YellowProviderProps) {
         setAuthStep("error");
       },
     })
-      .then((detectedChannelId) => {
+      .then(async (detectedChannelId) => {
         if (!isMounted) return;
         setChannelId(detectedChannelId ?? null);
         const session = getActiveSession();
         if (session?.ws) {
           setWs(session.ws);
+        }
+        try {
+          setIsRefreshingBalances(true);
+          const balances = await sdkGetLedgerBalances();
+          if (!isMounted) return;
+          setUnifiedBalance(balances.unifiedBalance);
+          setChannelBalance(balances.channelBalance);
+          if (balances.channelId && !detectedChannelId) {
+            setChannelId(balances.channelId);
+          }
+        } catch (error) {
+          console.warn("[YellowProvider] Failed to refresh balances", error);
+        } finally {
+          if (isMounted) setIsRefreshingBalances(false);
         }
       })
       .catch((error) => {
@@ -176,8 +197,32 @@ export function YellowProvider({ children }: YellowProviderProps) {
       setWs(session.ws);
     }
     setChannelId(channelId);
+    try {
+      setIsRefreshingBalances(true);
+      const balances = await sdkGetLedgerBalances();
+      setUnifiedBalance(balances.unifiedBalance);
+      setChannelBalance(balances.channelBalance);
+    } catch (error) {
+      console.warn("[YellowProvider] Failed to refresh balances after open", error);
+    } finally {
+      setIsRefreshingBalances(false);
+    }
     return channelId;
   }, [walletClient, address]);
+
+  const refreshBalances = useCallback(async () => {
+    setIsRefreshingBalances(true);
+    try {
+      const balances = await sdkGetLedgerBalances();
+      setUnifiedBalance(balances.unifiedBalance);
+      setChannelBalance(balances.channelBalance);
+      if (balances.channelId && !channelId) {
+        setChannelId(balances.channelId);
+      }
+    } finally {
+      setIsRefreshingBalances(false);
+    }
+  }, [channelId]);
 
   const closeChannel = useCallback(async () => {
     if (!channelId) {
@@ -189,20 +234,35 @@ export function YellowProvider({ children }: YellowProviderProps) {
       setChannelId(null);
       setWs(null);
       setIsConnected(false);
+      setChannelBalance(0);
     } finally {
       setIsClosing(false);
     }
   }, [channelId]);
 
-  const deposit = useCallback(async (amount: number) => {
+  const deposit = useCallback(
+    async (amount: number) => {
     await sdkDeposit(amount);
-    setUnifiedBalance((prev) => Number((prev + amount).toFixed(2)));
-  }, []);
+    try {
+      await refreshBalances();
+    } catch (error) {
+      console.warn("[YellowProvider] Failed to refresh balances after top up", error);
+    }
+    },
+    [refreshBalances]
+  );
 
-  const withdraw = useCallback(async (amount: number) => {
+  const withdraw = useCallback(
+    async (amount: number) => {
     await sdkWithdraw(amount);
-    setUnifiedBalance((prev) => Math.max(0, Number((prev - amount).toFixed(2))));
-  }, []);
+    try {
+      await refreshBalances();
+    } catch (error) {
+      console.warn("[YellowProvider] Failed to refresh balances after withdraw", error);
+    }
+    },
+    [refreshBalances]
+  );
 
   const value = useMemo<YellowContextValue>(
     () => ({
@@ -212,7 +272,9 @@ export function YellowProvider({ children }: YellowProviderProps) {
       channelId,
       isDetectingChannel,
       unifiedBalance,
-      setUnifiedBalance,
+      channelBalance,
+      isRefreshingBalances,
+      refreshBalances,
       authStep,
       authError,
       messageSigner,
@@ -229,6 +291,9 @@ export function YellowProvider({ children }: YellowProviderProps) {
       channelId,
       isDetectingChannel,
       unifiedBalance,
+      channelBalance,
+      isRefreshingBalances,
+      refreshBalances,
       authStep,
       authError,
       messageSigner,

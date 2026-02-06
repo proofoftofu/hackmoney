@@ -40,12 +40,19 @@ type SessionState = {
   config?: Config;
 };
 
+export type LedgerBalances = {
+  unifiedBalance: number;
+  channelBalance: number;
+  channelId: `0x${string}` | null;
+};
+
 let activeSession: SessionState | null = null;
 let sessionPromise: Promise<SessionState> | null = null;
 let sessionKey: string | null = null;
 
 const DEFAULT_TOKEN = "0xDB9F293e3898c9E5536A3be1b0C56c89d2b32DEb";
 const DEFAULT_CHAIN_ID = 11155111; // Sepolia
+const SESSION_STORAGE_PREFIX = "yellow.session-key.v1";
 
 const ALCHEMY_RPC_URL = process.env.ALCHEMY_RPC_URL;
 const FALLBACK_RPC_URL = "https://1rpc.io/sepolia"; // Public fallback
@@ -54,6 +61,45 @@ const ensureBrowser = () => {
   if (typeof window === "undefined") {
     throw new Error("Yellow client can only run in the browser.");
   }
+};
+
+const getSessionStorageKey = (
+  clearnodeUrl: string,
+  walletAddress: `0x${string}`,
+  chainId: number
+) =>
+  `${SESSION_STORAGE_PREFIX}:${encodeURIComponent(clearnodeUrl)}:${walletAddress}:${chainId}`;
+
+const loadStoredSessionKey = (
+  clearnodeUrl: string,
+  walletAddress: `0x${string}`,
+  chainId: number
+): `0x${string}` | null => {
+  ensureBrowser();
+  const key = getSessionStorageKey(clearnodeUrl, walletAddress, chainId);
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return null;
+  try {
+    if (raw.trim().startsWith("{")) {
+      const parsed = JSON.parse(raw) as { sessionPrivateKey?: `0x${string}` };
+      return parsed.sessionPrivateKey ?? null;
+    }
+    return raw as `0x${string}`;
+  } catch (error) {
+    console.warn("[yellowClient] Failed to parse stored session", error);
+    return null;
+  }
+};
+
+const persistSessionKey = (
+  clearnodeUrl: string,
+  walletAddress: `0x${string}`,
+  chainId: number,
+  sessionPrivateKey: `0x${string}`
+) => {
+  ensureBrowser();
+  const key = getSessionStorageKey(clearnodeUrl, walletAddress, chainId);
+  window.localStorage.setItem(key, sessionPrivateKey);
 };
 
 const log = (...args: unknown[]) => {
@@ -157,6 +203,63 @@ const toBigInt = (value: unknown) => {
   return 0n;
 };
 
+const fromMinorUnits = (value: bigint) => Number(value) / 100;
+
+const pickNumeric = (value: unknown): bigint | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "bigint" || typeof value === "number" || typeof value === "string") {
+    return toBigInt(value);
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = pickNumeric(entry);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = [
+      "available",
+      "available_balance",
+      "unified",
+      "unified_balance",
+      "balance",
+      "amount",
+      "total",
+      "free",
+    ];
+    for (const key of keys) {
+      if (record[key] !== undefined) {
+        const found = pickNumeric(record[key]);
+        if (found !== null) return found;
+      }
+    }
+  }
+  return null;
+};
+
+const extractUnifiedBalance = (payload: any): bigint => {
+  const candidates = [
+    payload?.balances,
+    payload?.balances?.available,
+    payload?.balances?.unified,
+    payload?.balances?.balance,
+    payload?.ledger?.balances,
+    payload?.ledger?.available,
+    payload?.ledger?.balance,
+    payload?.available_balance,
+    payload?.unified_balance,
+    payload?.balance,
+    payload?.available,
+  ];
+  for (const candidate of candidates) {
+    const value = pickNumeric(candidate);
+    if (value !== null) return value;
+  }
+  return 0n;
+};
+
 const ensureSession = () => {
   if (!activeSession) {
     throw new Error("Yellow session not initialized. Call openChannel first.");
@@ -179,7 +282,8 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   const existing = reuseSessionIfPossible(config);
   if (existing) return existing;
 
-  const nextKey = `${config.clearnodeUrl}:${config.address}:${config.walletClient.chain?.id ?? DEFAULT_CHAIN_ID}`;
+  const chainId = config.walletClient.chain?.id ?? DEFAULT_CHAIN_ID;
+  const nextKey = `${config.clearnodeUrl}:${config.address}:${chainId}`;
   if (sessionPromise && sessionKey === nextKey) {
     return sessionPromise;
   }
@@ -187,96 +291,119 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   sessionKey = nextKey;
 
   sessionPromise = (async () => {
-  const nitrolite = await import("@erc7824/nitrolite");
-  const {
-    createAuthRequestMessage,
-    createAuthVerifyMessageFromChallenge,
-    createECDSAMessageSigner,
-    createEIP712AuthMessageSigner,
-  } = nitrolite;
-    const viemAccounts = await import("viem/accounts");
+    const storedSessionKey = loadStoredSessionKey(
+      config.clearnodeUrl,
+      config.address,
+      chainId
+    );
+    const createSession = async (
+      sessionPrivateKeyOverride?: `0x${string}`
+    ): Promise<SessionState> => {
+      const nitrolite = await import("@erc7824/nitrolite");
+      const {
+        createAuthRequestMessage,
+        createAuthVerifyMessageFromChallenge,
+        createECDSAMessageSigner,
+        createEIP712AuthMessageSigner,
+      } = nitrolite;
+      const viemAccounts = await import("viem/accounts");
 
-  const chainId = config.walletClient.chain?.id ?? DEFAULT_CHAIN_ID;
-  log("Opening channel on chain:", chainId);
+      log("Opening channel on chain:", chainId);
 
-  const sessionPrivateKey = viemAccounts.generatePrivateKey();
-  const sessionAccount = viemAccounts.privateKeyToAccount(sessionPrivateKey);
-  const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
-  log("Generated session key:", sessionAccount.address);
+      const sessionPrivateKey =
+        sessionPrivateKeyOverride ?? viemAccounts.generatePrivateKey();
+      const sessionAccount = viemAccounts.privateKeyToAccount(sessionPrivateKey);
+      const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
+      log(
+        sessionPrivateKeyOverride
+          ? "Reusing stored session key:"
+          : "Generated session key:",
+        sessionAccount.address
+      );
 
-  const ws = new WebSocket(config.clearnodeUrl);
-  log("Connecting to clearnode:", config.clearnodeUrl);
-  await waitForOpen(ws);
-  log("Clearnode connected.");
+      const ws = new WebSocket(config.clearnodeUrl);
+      log("Connecting to clearnode:", config.clearnodeUrl);
+      await waitForOpen(ws);
+      log("Clearnode connected.");
 
-  const sessionState: SessionState = {
-    ws,
-    clearnodeUrl: config.clearnodeUrl,
-    walletClient: config.walletClient,
-    walletAddress: config.address,
-    sessionPrivateKey,
-    sessionSigner,
-    sessionAddress: sessionAccount.address,
-    token: DEFAULT_TOKEN,
-    chainId,
-  };
+      const sessionState: SessionState = {
+        ws,
+        clearnodeUrl: config.clearnodeUrl,
+        walletClient: config.walletClient,
+        walletAddress: config.address,
+        sessionPrivateKey,
+        sessionSigner,
+        sessionAddress: sessionAccount.address,
+        token: DEFAULT_TOKEN,
+        chainId,
+      };
 
-  sessionState.config = await fetchConfig(ws, sessionSigner);
-  sessionState.token = resolveToken(sessionState.config, chainId);
-  log("Resolved token:", sessionState.token);
+      sessionState.config = await fetchConfig(ws, sessionSigner);
+      sessionState.token = resolveToken(sessionState.config, chainId);
+      log("Resolved token:", sessionState.token);
 
-  const authParams = {
-    session_key: sessionState.sessionAddress,
-    allowances: config.allowances ?? [
-      {
-        asset: "ytest.usd",
-        amount: "1000000000",
-      },
-    ],
-    expires_at: BigInt(
-      Math.floor(Date.now() / 1000) + (config.expiresInSeconds ?? 3600)
-    ),
-    scope: config.scope ?? "auction.app",
-  };
+      const expiresAtSeconds =
+        Math.floor(Date.now() / 1000) + (config.expiresInSeconds ?? 3600);
+      const authParams = {
+        session_key: sessionState.sessionAddress,
+        allowances: config.allowances ?? [
+          {
+            asset: "ytest.usd",
+            amount: "1000000000",
+          },
+        ],
+        expires_at: BigInt(expiresAtSeconds),
+        scope: config.scope ?? "auction.app",
+      };
 
-  const authRequest = await createAuthRequestMessage({
-    address: config.address,
-    application: config.application ?? "Yellow Auction",
-    ...authParams,
-  });
+      const authRequest = await createAuthRequestMessage({
+        address: config.address,
+        application: config.application ?? "Yellow Auction",
+        ...authParams,
+      });
 
-  log("Sending auth_request...");
-  config.onAuthRequest?.();
-  ws.send(authRequest);
+      log("Sending auth_request...");
+      config.onAuthRequest?.();
+      ws.send(authRequest);
 
-  const challenge = await waitForResponse(ws, "auth_challenge", 20000, "auth");
-  const challengeMessage = challenge?.res?.[2]?.challenge_message;
-  if (!challengeMessage) {
-    throw new Error("Missing auth challenge from Yellow.");
-  }
-  log("Received auth_challenge.");
-  config.onAuthChallenge?.();
+      const challenge = await waitForResponse(ws, "auth_challenge", 20000, "auth");
+      const challengeMessage = challenge?.res?.[2]?.challenge_message;
+      if (!challengeMessage) {
+        throw new Error("Missing auth challenge from Yellow.");
+      }
+      log("Received auth_challenge.");
+      config.onAuthChallenge?.();
 
-  const authSigner = createEIP712AuthMessageSigner(
-    config.walletClient,
-    authParams,
-    { name: config.application ?? "Yellow Auction" }
-  );
+      const authSigner = createEIP712AuthMessageSigner(
+        config.walletClient,
+        authParams,
+        { name: config.application ?? "Yellow Auction" }
+      );
 
-  const verifyMsg = await createAuthVerifyMessageFromChallenge(
-    authSigner,
-    challengeMessage
-  );
+      const verifyMsg = await createAuthVerifyMessageFromChallenge(
+        authSigner,
+        challengeMessage
+      );
 
-  log("Sending auth_verify (EIP-712)...");
-  config.onAuthVerify?.();
-  ws.send(verifyMsg);
-  await waitForResponse(ws, "auth_verify", 20000, "auth");
-  log("Authenticated.");
-  config.onAuthSuccess?.();
+      log("Sending auth_verify (EIP-712)...");
+      config.onAuthVerify?.();
+      ws.send(verifyMsg);
+      await waitForResponse(ws, "auth_verify", 20000, "auth");
+      log("Authenticated.");
+      config.onAuthSuccess?.();
 
-  activeSession = sessionState;
-    return sessionState;
+      persistSessionKey(
+        sessionState.clearnodeUrl,
+        sessionState.walletAddress,
+        sessionState.chainId,
+        sessionState.sessionPrivateKey
+      );
+
+      activeSession = sessionState;
+      return sessionState;
+    };
+
+    return await createSession(storedSessionKey ?? undefined);
   })();
 
   try {
@@ -320,6 +447,51 @@ const detectOpenChannelId = async (sessionState: SessionState): Promise<`0x${str
   const openChannel = channels.find((channel: any) => channel.status === "open");
   return (openChannel?.channel_id as `0x${string}` | undefined) ?? null;
 };
+
+export async function getLedgerBalances(): Promise<LedgerBalances> {
+  const sessionState = ensureSession();
+  const { createGetLedgerBalancesMessage } = await import("@erc7824/nitrolite");
+  const ledgerMsg = await createGetLedgerBalancesMessage(
+    sessionState.sessionSigner,
+    sessionState.walletAddress,
+    Date.now()
+  );
+  log("Requesting ledger balances...");
+  sessionState.ws.send(ledgerMsg);
+  const ledgerResp = await waitForResponse(
+    sessionState.ws,
+    ["channels", "get_ledger_balances"],
+    20000,
+    "ledger"
+  );
+  const payload = ledgerResp?.res?.[2] ?? ledgerResp?.params ?? {};
+  const channels =
+    payload?.channels ??
+    payload?.result?.channels ??
+    payload?.ledger?.channels ??
+    [];
+  const targetChannelId = sessionState.channelId;
+  const openChannel =
+    channels.find((channel: any) => channel.channel_id === targetChannelId) ??
+    channels.find((channel: any) => channel.status === "open") ??
+    null;
+  const channelId =
+    (openChannel?.channel_id as `0x${string}` | undefined) ?? null;
+  const channelAmount =
+    pickNumeric(openChannel?.amount ?? openChannel?.balance ?? openChannel?.total) ?? 0n;
+  const unified = extractUnifiedBalance(payload);
+
+  if (channelId && sessionState.channelId !== channelId) {
+    sessionState.channelId = channelId;
+    activeSession = sessionState;
+  }
+
+  return {
+    unifiedBalance: fromMinorUnits(unified),
+    channelBalance: fromMinorUnits(channelAmount),
+    channelId,
+  };
+}
 
 export async function detectOpenChannel(
   config: YellowConnectionConfig
