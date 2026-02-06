@@ -7,6 +7,7 @@ import {
   deposit as sdkDeposit,
   getActiveSession,
   openChannel as sdkOpenChannel,
+  closeChannel as sdkCloseChannel,
   signSessionMessage,
   withdraw as sdkWithdraw,
 } from "../lib/yellowClient";
@@ -19,10 +20,14 @@ type YellowContextValue = {
   isDetectingChannel: boolean;
   unifiedBalance: number;
   setUnifiedBalance: (next: number) => void;
+  authStep: "idle" | "request" | "challenge" | "verify" | "success" | "error";
+  authError: string | null;
   messageSigner: (payload: string) => Promise<string>;
   openChannel: () => Promise<string>;
+  closeChannel: () => Promise<void>;
   deposit: (amount: number) => Promise<void>;
   withdraw: (amount: number) => Promise<void>;
+  isClosing: boolean;
 };
 
 export const YellowContext = createContext<YellowContextValue | null>(null);
@@ -39,15 +44,28 @@ export function YellowProvider({ children }: YellowProviderProps) {
   const [channelId, setChannelId] = useState<string | null>(null);
   const [isDetectingChannel, setIsDetectingChannel] = useState(false);
   const [unifiedBalance, setUnifiedBalance] = useState(18.4);
+  const [authStep, setAuthStep] = useState<
+    "idle" | "request" | "challenge" | "verify" | "success" | "error"
+  >("idle");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
   const { address } = useAccount();
   const { data: walletClient } = useWalletClient();
   const hasWallet = Boolean(walletClient && address);
+
+  useEffect(() => {
+    if (authStep !== "success") return;
+    const timeout = setTimeout(() => setAuthStep("idle"), 900);
+    return () => clearTimeout(timeout);
+  }, [authStep]);
 
   useEffect(() => {
     if (!walletClient || !address) {
       setChannelId(null);
       setWs(null);
       setIsConnected(false);
+      setAuthStep("idle");
+      setAuthError(null);
       return;
     }
 
@@ -59,6 +77,17 @@ export function YellowProvider({ children }: YellowProviderProps) {
       address,
       application: "Yellow Auction",
       scope: "auction.app",
+      onAuthRequest: () => {
+        setAuthError(null);
+        setAuthStep("request");
+      },
+      onAuthChallenge: () => setAuthStep("challenge"),
+      onAuthVerify: () => setAuthStep("verify"),
+      onAuthSuccess: () => setAuthStep("success"),
+      onAuthError: (error) => {
+        setAuthError(error.message);
+        setAuthStep("error");
+      },
     })
       .then((detectedChannelId) => {
         if (!isMounted) return;
@@ -130,6 +159,17 @@ export function YellowProvider({ children }: YellowProviderProps) {
       address,
       application: "Yellow Auction",
       scope: "auction.app",
+      onAuthRequest: () => {
+        setAuthError(null);
+        setAuthStep("request");
+      },
+      onAuthChallenge: () => setAuthStep("challenge"),
+      onAuthVerify: () => setAuthStep("verify"),
+      onAuthSuccess: () => setAuthStep("success"),
+      onAuthError: (error) => {
+        setAuthError(error.message);
+        setAuthStep("error");
+      },
     });
     const session = getActiveSession();
     if (session?.ws) {
@@ -138,6 +178,21 @@ export function YellowProvider({ children }: YellowProviderProps) {
     setChannelId(channelId);
     return channelId;
   }, [walletClient, address]);
+
+  const closeChannel = useCallback(async () => {
+    if (!channelId) {
+      throw new Error("No active session to close.");
+    }
+    setIsClosing(true);
+    try {
+      await sdkCloseChannel();
+      setChannelId(null);
+      setWs(null);
+      setIsConnected(false);
+    } finally {
+      setIsClosing(false);
+    }
+  }, [channelId]);
 
   const deposit = useCallback(async (amount: number) => {
     await sdkDeposit(amount);
@@ -158,10 +213,14 @@ export function YellowProvider({ children }: YellowProviderProps) {
       isDetectingChannel,
       unifiedBalance,
       setUnifiedBalance,
+      authStep,
+      authError,
       messageSigner,
       openChannel,
+      closeChannel,
       deposit,
       withdraw,
+      isClosing,
     }),
     [
       ws,
@@ -170,10 +229,14 @@ export function YellowProvider({ children }: YellowProviderProps) {
       channelId,
       isDetectingChannel,
       unifiedBalance,
+      authStep,
+      authError,
       messageSigner,
       openChannel,
+      closeChannel,
       deposit,
       withdraw,
+      isClosing,
     ]
   );
 

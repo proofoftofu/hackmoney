@@ -13,6 +13,11 @@ export type YellowConnectionConfig = {
   scope?: string;
   allowances?: { asset: string; amount: string }[];
   expiresInSeconds?: number;
+  onAuthRequest?: () => void;
+  onAuthChallenge?: () => void;
+  onAuthVerify?: () => void;
+  onAuthSuccess?: () => void;
+  onAuthError?: (error: Error) => void;
 };
 
 type Config = {
@@ -241,6 +246,7 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   });
 
   log("Sending auth_request...");
+  config.onAuthRequest?.();
   ws.send(authRequest);
 
   const challenge = await waitForResponse(ws, "auth_challenge", 20000, "auth");
@@ -249,6 +255,7 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
     throw new Error("Missing auth challenge from Yellow.");
   }
   log("Received auth_challenge.");
+  config.onAuthChallenge?.();
 
   const authSigner = createEIP712AuthMessageSigner(
     config.walletClient,
@@ -262,9 +269,11 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   );
 
   log("Sending auth_verify (EIP-712)...");
+  config.onAuthVerify?.();
   ws.send(verifyMsg);
   await waitForResponse(ws, "auth_verify", 20000, "auth");
   log("Authenticated.");
+  config.onAuthSuccess?.();
 
   activeSession = sessionState;
     return sessionState;
@@ -276,6 +285,11 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   } catch (error) {
     sessionPromise = null;
     sessionKey = null;
+    if (error instanceof Error) {
+      config.onAuthError?.(error);
+    } else {
+      config.onAuthError?.(new Error("Unknown auth error"));
+    }
     throw error;
   } finally {
     sessionPromise = null;
@@ -470,4 +484,91 @@ export async function withdraw(amount: number): Promise<void> {
   console.warn(
     "Withdraw flow requires on-chain close/withdraw. Not implemented in the browser client yet."
   );
+}
+
+export async function closeChannel(): Promise<string> {
+  ensureBrowser();
+  const session = ensureSession();
+  if (!session.channelId) {
+    throw new Error("No active channel to close.");
+  }
+
+  const nitrolite = await import("@erc7824/nitrolite");
+  const { createCloseChannelMessage, NitroliteClient, WalletStateSigner } = nitrolite;
+  const viem = await import("viem");
+  const viemChains = await import("viem/chains");
+
+  log("Sending close_channel request...");
+  const closeMsg = await createCloseChannelMessage(
+    session.sessionSigner,
+    session.channelId as `0x${string}`,
+    session.walletAddress
+  );
+  session.ws.send(closeMsg);
+  const closeResponse = await waitForResponse(
+    session.ws,
+    "close_channel",
+    30000,
+    "close_channel"
+  );
+  const payload = closeResponse?.res?.[2];
+  if (!payload) {
+    throw new Error("Yellow did not return close_channel data.");
+  }
+
+  const network = resolveNetwork(session.config, session.chainId);
+  const custody = network?.custody_address ?? network?.custodyAddress;
+  const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
+  if (!custody || !adjudicator) {
+    throw new Error("Missing custody/adjudicator addresses for selected chain.");
+  }
+
+  const publicClient = viem.createPublicClient({
+    chain: session.walletClient.chain ?? viemChains.sepolia,
+    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
+  });
+
+  const nitroliteClient = new NitroliteClient({
+    publicClient,
+    walletClient: session.walletClient,
+    stateSigner: new WalletStateSigner(session.walletClient),
+    addresses: {
+      custody,
+      adjudicator,
+    },
+    chainId: session.chainId,
+    challengeDuration: 3600n,
+  });
+
+  const state = payload.state ?? {};
+  const channelId =
+    (payload.channel_id ?? payload.channelId ?? session.channelId) as `0x${string}`;
+
+  const txHash = await nitroliteClient.closeChannel({
+    finalState: {
+      intent: Number(state.intent ?? 0),
+      version: toBigInt(state.version),
+      data: state.state_data || state.data || "0x",
+      allocations: (state.allocations ?? []).map((allocation: any) => ({
+        destination: allocation.destination,
+        token: allocation.token,
+        amount: toBigInt(allocation.amount),
+      })),
+      channelId,
+      serverSignature:
+        (payload.server_signature ?? payload.serverSignature) as `0x${string}`,
+    },
+    stateData: state.state_data || state.data || "0x",
+  });
+
+  log("Channel closed on-chain:", txHash);
+  try {
+    session.ws.close();
+  } catch (error) {
+    console.warn("[yellowClient] Failed to close WebSocket", error);
+  }
+  activeSession = null;
+  sessionKey = null;
+  sessionPromise = null;
+  return typeof txHash === "string" ? txHash : txHash?.toString?.() ?? "";
 }
