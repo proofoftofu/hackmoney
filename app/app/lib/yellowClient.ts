@@ -82,6 +82,10 @@ const SESSION_STORAGE_PREFIX = "yellow.session-key.v2";
 const listeners = new Set<(message: RPCResponse) => void>();
 let clientUnsubscribe: (() => void) | null = null;
 
+const log = (...args: unknown[]) => {
+  console.log("[yellow]", ...args);
+};
+
 const ensureBrowser = () => {
   if (typeof window === "undefined") {
     throw new Error("Yellow client can only run in the browser.");
@@ -107,7 +111,8 @@ const loadStoredSessionKey = (
       return parsed.sessionPrivateKey ?? null;
     }
     return raw as `0x${string}`;
-  } catch {
+  } catch (error) {
+    log("Failed to parse stored session key", error);
     return null;
   }
 };
@@ -120,6 +125,7 @@ const persistSessionKey = (
   ensureBrowser();
   const key = getSessionStorageKey(clearnodeUrl, walletAddress);
   window.localStorage.setItem(key, sessionPrivateKey);
+  log("Session key persisted", { clearnodeUrl, walletAddress });
 };
 
 const clearStoredSessionKey = (
@@ -129,6 +135,7 @@ const clearStoredSessionKey = (
   ensureBrowser();
   const key = getSessionStorageKey(clearnodeUrl, walletAddress);
   window.localStorage.removeItem(key);
+  log("Session key cleared", { clearnodeUrl, walletAddress });
 };
 
 const extractMethod = (message: RPCResponse) =>
@@ -161,6 +168,8 @@ const waitForMethod = (
 const attachClientListener = (client: Client) => {
   if (clientUnsubscribe) return;
   clientUnsubscribe = client.listen((message: RPCResponse) => {
+    const method = extractMethod(message);
+    log("Received message", method ?? "unknown", message);
     for (const listener of listeners) {
       listener(message);
     }
@@ -187,9 +196,20 @@ const authenticateWallet = async (
     scope: config.scope ?? "auction.app",
   };
 
+  log("Auth request params", {
+    address: config.address,
+    sessionKey: sessionState.sessionAddress,
+    application: authParams.application,
+    scope: authParams.scope,
+    expiresAt: authParams.expires_at.toString(),
+    allowances: authParams.allowances,
+  });
+
   const authRequest = await createAuthRequestMessage(authParams);
+  log("Sending auth_request");
 
   const handleChallenge = async (message: AuthChallengeResponse) => {
+    log("Received auth_challenge", message);
     config.onAuthChallenge?.();
 
     const authSigner = createEIP712AuthMessageSigner(
@@ -199,6 +219,7 @@ const authenticateWallet = async (
     );
 
     const authVerifyMessage = await createAuthVerifyMessage(authSigner, message);
+    log("Sending auth_verify");
     config.onAuthVerify?.();
     await sessionState.client.sendMessage(authVerifyMessage);
   };
@@ -217,6 +238,7 @@ const authenticateWallet = async (
 
   try {
     await waitForMethod(RPCMethod.AuthVerify);
+    log("Auth verified");
     config.onAuthSuccess?.();
   } finally {
     listeners.delete(challengeHandler);
@@ -255,7 +277,9 @@ const connectSession = async (
     const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
 
     const client = new Client({ url: config.clearnodeUrl });
+    log("Connecting to Yellow", config.clearnodeUrl);
     await client.connect();
+    log("Connected to Yellow");
     attachClientListener(client);
 
     const sessionState: SessionState = {
@@ -277,6 +301,10 @@ const connectSession = async (
     );
 
     activeSession = sessionState;
+    log("Session ready", {
+      walletAddress: sessionState.walletAddress,
+      sessionAddress: sessionState.sessionAddress,
+    });
     return sessionState;
   })();
 
@@ -308,11 +336,19 @@ export function getActiveSession() {
 }
 
 export async function connectYellowSession(config: YellowConnectionConfig) {
+  log("Connect session requested", {
+    walletAddress: config.address,
+    clearnodeUrl: config.clearnodeUrl,
+  });
   return connectSession(config);
 }
 
 export async function disconnectYellowSession() {
   if (!activeSession) return;
+  log("Disconnecting session", {
+    walletAddress: activeSession.walletAddress,
+    sessionAddress: activeSession.sessionAddress,
+  });
   try {
     await activeSession.client.disconnect();
   } finally {
@@ -325,13 +361,16 @@ export async function disconnectYellowSession() {
     activeSession = null;
     sessionKey = null;
     sessionPromise = null;
+    log("Session disconnected");
   }
 }
 
 export function subscribeToMessages(handler: (message: RPCResponse) => void) {
+  log("Subscriber added");
   listeners.add(handler);
   return () => {
     listeners.delete(handler);
+    log("Subscriber removed");
   };
 }
 
@@ -339,6 +378,7 @@ export async function createAppSession(
   input: CreateAppSessionInput
 ): Promise<CreateAppSessionResult> {
   const session = ensureSession();
+  log("Creating app session", input);
   const defaultWeight = Math.floor(100 / input.participants.length);
   const definition: RPCAppDefinition = {
     protocol: input.protocol ?? RPCProtocolVersion.NitroRPC_0_4,
@@ -355,6 +395,7 @@ export async function createAppSession(
     allocations: input.allocations,
   });
 
+  log("Sending create_app_session");
   const response = (await session.client.sendMessage(
     message
   )) as RPCResponse;
@@ -367,6 +408,7 @@ export async function createAppSession(
     throw new Error("Yellow did not return app_session_id.");
   }
 
+  log("App session created", { appSessionId, version: params?.version });
   return {
     appSessionId,
     version: params?.version,
@@ -377,6 +419,7 @@ export async function createAppSession(
 
 export async function submitAppState(input: SubmitAppStateInput) {
   const session = ensureSession();
+  log("Submitting app state", input);
   const params = {
     app_session_id: input.appSessionId,
     allocations: input.allocations,
@@ -390,14 +433,17 @@ export async function submitAppState(input: SubmitAppStateInput) {
     params
   );
 
+  log("Sending submit_app_state");
   return session.client.sendMessage(message);
 }
 
 export async function closeAppSession(input: CloseAppSessionInput) {
   const session = ensureSession();
+  log("Closing app session", input);
   const message = await createCloseAppSessionMessage(session.sessionSigner, {
     app_session_id: input.appSessionId,
     allocations: input.allocations,
   });
+  log("Sending close_app_session");
   return session.client.sendMessage(message);
 }

@@ -65,6 +65,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
       throw new Error("Connect a wallet before opening a Yellow session.");
     }
 
+    console.log("[yellow] connectSession");
     setIsConnecting(true);
     try {
       await connectYellowSession({
@@ -87,6 +88,10 @@ export function YellowProvider({ children }: YellowProviderProps) {
       });
 
       const session = getActiveSession();
+      console.log("[yellow] session connected", {
+        walletAddress: address,
+        sessionAddress: session?.sessionAddress,
+      });
       setSessionAddress(session?.sessionAddress ?? null);
       setIsConnected(true);
     } finally {
@@ -95,9 +100,11 @@ export function YellowProvider({ children }: YellowProviderProps) {
   }, [walletClient, address]);
 
   const disconnectSession = useCallback(async () => {
+    console.log("[yellow] disconnectSession");
     setIsConnecting(true);
     try {
       await disconnectYellowSession();
+      console.log("[yellow] session disconnected");
       setIsConnected(false);
       setSessionAddress(null);
       setAuthStep("idle");
@@ -109,6 +116,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
 
   useEffect(() => {
     if (!walletClient || !address) {
+      console.log("[yellow] wallet not connected, resetting session state");
       setIsConnected(false);
       setSessionAddress(null);
       setAuthStep("idle");
@@ -128,19 +136,23 @@ export function YellowProvider({ children }: YellowProviderProps) {
   }, [walletClient, address, connectSession]);
 
   const createAppSession = useCallback(async (input: CreateAppSessionInput) => {
+    console.log("[yellow] createAppSession", input);
     return sdkCreateAppSession(input);
   }, []);
 
   const submitAppState = useCallback(async (input: SubmitAppStateInput) => {
+    console.log("[yellow] submitAppState", input);
     await sdkSubmitAppState(input);
   }, []);
 
   const closeAppSession = useCallback(async (input: CloseAppSessionInput) => {
+    console.log("[yellow] closeAppSession", input);
     await sdkCloseAppSession(input);
   }, []);
 
   const subscribe = useCallback(
     (handler: (message: RPCResponse) => void) => {
+      console.log("[yellow] subscribe");
       return subscribeToMessages(handler);
     },
     []

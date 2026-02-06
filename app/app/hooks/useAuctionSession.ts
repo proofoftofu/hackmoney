@@ -114,6 +114,7 @@ export function useAuctionSession(
 
   useEffect(() => {
     if (!hasWallet || !isConnected || sessionId) return;
+    console.log("[yellow] auto create auction session", { auctionId });
     createSession().catch((error) => {
       console.warn("Failed to create auction session", error);
     });
@@ -121,6 +122,7 @@ export function useAuctionSession(
 
   const placeBid = useCallback(async () => {
     if (!sessionId || !walletAddress) return;
+    console.log("[yellow] placeBid", { auctionId, sessionId, walletAddress });
 
     const bidAmount = 0.01;
     const nextVersion = version + 1;
@@ -149,6 +151,12 @@ export function useAuctionSession(
       intent: RPCAppStateIntent.Operate,
       sessionData: JSON.stringify(sessionData),
     });
+    console.log("[yellow] bid submitted", {
+      auctionId,
+      sessionId,
+      version: nextVersion,
+      price: nextPrice,
+    });
 
     setVersion(nextVersion);
     setCurrentPrice(nextPrice);
@@ -165,6 +173,7 @@ export function useAuctionSession(
       if (!payload) return;
       if (payload.sessionId !== sessionId) return;
       if (payload.version <= version) return;
+      console.log("[yellow] session update", payload);
 
       const nextState = payload.state;
 
