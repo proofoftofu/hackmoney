@@ -6,6 +6,7 @@ import {
   detectOpenChannel as sdkDetectOpenChannel,
   deposit as sdkDeposit,
   getActiveSession,
+  getDepositBalance as sdkGetDepositBalance,
   getLedgerBalances as sdkGetLedgerBalances,
   openChannel as sdkOpenChannel,
   closeChannel as sdkCloseChannel,
@@ -21,6 +22,7 @@ type YellowContextValue = {
   isDetectingChannel: boolean;
   unifiedBalance: number;
   channelBalance: number;
+  depositBalance: number;
   isRefreshingBalances: boolean;
   refreshBalances: () => Promise<void>;
   authStep: "idle" | "request" | "challenge" | "verify" | "success" | "error";
@@ -48,6 +50,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
   const [isDetectingChannel, setIsDetectingChannel] = useState(false);
   const [unifiedBalance, setUnifiedBalance] = useState(0);
   const [channelBalance, setChannelBalance] = useState(0);
+  const [depositBalance, setDepositBalance] = useState(0);
   const [isRefreshingBalances, setIsRefreshingBalances] = useState(false);
   const [authStep, setAuthStep] = useState<
     "idle" | "request" | "challenge" | "verify" | "success" | "error"
@@ -73,6 +76,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
       setAuthError(null);
       setUnifiedBalance(0);
       setChannelBalance(0);
+      setDepositBalance(0);
       return;
     }
 
@@ -103,20 +107,34 @@ export function YellowProvider({ children }: YellowProviderProps) {
         if (session?.ws) {
           setWs(session.ws);
         }
-        try {
-          setIsRefreshingBalances(true);
-          const balances = await sdkGetLedgerBalances();
-          if (!isMounted) return;
+        setIsRefreshingBalances(true);
+        const [ledgerResult, depositResult] = await Promise.allSettled([
+          sdkGetLedgerBalances(),
+          sdkGetDepositBalance(),
+        ]);
+        if (!isMounted) return;
+        if (ledgerResult.status === "fulfilled") {
+          const balances = ledgerResult.value;
           setUnifiedBalance(balances.unifiedBalance);
           setChannelBalance(balances.channelBalance);
           if (balances.channelId && !detectedChannelId) {
             setChannelId(balances.channelId);
           }
-        } catch (error) {
-          console.warn("[YellowProvider] Failed to refresh balances", error);
-        } finally {
-          if (isMounted) setIsRefreshingBalances(false);
+        } else {
+          console.warn(
+            "[YellowProvider] Failed to refresh ledger balances",
+            ledgerResult.reason
+          );
         }
+        if (depositResult.status === "fulfilled") {
+          setDepositBalance(depositResult.value.custodyBalance);
+        } else {
+          console.warn(
+            "[YellowProvider] Failed to refresh deposit balance",
+            depositResult.reason
+          );
+        }
+        if (isMounted) setIsRefreshingBalances(false);
       })
       .catch((error) => {
         if (!isMounted) return;
@@ -197,27 +215,59 @@ export function YellowProvider({ children }: YellowProviderProps) {
       setWs(session.ws);
     }
     setChannelId(channelId);
-    try {
-      setIsRefreshingBalances(true);
-      const balances = await sdkGetLedgerBalances();
-      setUnifiedBalance(balances.unifiedBalance);
-      setChannelBalance(balances.channelBalance);
-    } catch (error) {
-      console.warn("[YellowProvider] Failed to refresh balances after open", error);
-    } finally {
-      setIsRefreshingBalances(false);
+    setIsRefreshingBalances(true);
+    const [ledgerResult, depositResult] = await Promise.allSettled([
+      sdkGetLedgerBalances(),
+      sdkGetDepositBalance(),
+    ]);
+    if (ledgerResult.status === "fulfilled") {
+      setUnifiedBalance(ledgerResult.value.unifiedBalance);
+      setChannelBalance(ledgerResult.value.channelBalance);
+    } else {
+      console.warn(
+        "[YellowProvider] Failed to refresh ledger balances after open",
+        ledgerResult.reason
+      );
     }
+    if (depositResult.status === "fulfilled") {
+      setDepositBalance(depositResult.value.custodyBalance);
+    } else {
+      console.warn(
+        "[YellowProvider] Failed to refresh deposit balance after open",
+        depositResult.reason
+      );
+    }
+    setIsRefreshingBalances(false);
     return channelId;
   }, [walletClient, address]);
 
   const refreshBalances = useCallback(async () => {
     setIsRefreshingBalances(true);
     try {
-      const balances = await sdkGetLedgerBalances();
-      setUnifiedBalance(balances.unifiedBalance);
-      setChannelBalance(balances.channelBalance);
-      if (balances.channelId && !channelId) {
-        setChannelId(balances.channelId);
+      const [ledgerResult, depositResult] = await Promise.allSettled([
+        sdkGetLedgerBalances(),
+        sdkGetDepositBalance(),
+      ]);
+      if (ledgerResult.status === "fulfilled") {
+        const balances = ledgerResult.value;
+        setUnifiedBalance(balances.unifiedBalance);
+        setChannelBalance(balances.channelBalance);
+        if (balances.channelId && !channelId) {
+          setChannelId(balances.channelId);
+        }
+      } else {
+        console.warn(
+          "[YellowProvider] Failed to refresh ledger balances",
+          ledgerResult.reason
+        );
+      }
+      if (depositResult.status === "fulfilled") {
+        setDepositBalance(depositResult.value.custodyBalance);
+      } else {
+        console.warn(
+          "[YellowProvider] Failed to refresh deposit balance",
+          depositResult.reason
+        );
       }
     } finally {
       setIsRefreshingBalances(false);
@@ -273,6 +323,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
       isDetectingChannel,
       unifiedBalance,
       channelBalance,
+      depositBalance,
       isRefreshingBalances,
       refreshBalances,
       authStep,
@@ -292,6 +343,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
       isDetectingChannel,
       unifiedBalance,
       channelBalance,
+      depositBalance,
       isRefreshingBalances,
       refreshBalances,
       authStep,

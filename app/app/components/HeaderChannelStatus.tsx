@@ -19,6 +19,7 @@ export function HeaderChannelStatus() {
     isClosing,
     unifiedBalance,
     channelBalance,
+    depositBalance,
     deposit,
     isRefreshingBalances,
     refreshBalances,
@@ -223,13 +224,21 @@ export function HeaderChannelStatus() {
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-3 rounded-2xl border border-white/10 bg-slate-950/80 p-4 text-sm text-zinc-300 sm:grid-cols-2">
+                    <div className="mt-4 grid gap-3 rounded-2xl border border-white/10 bg-slate-950/80 p-4 text-sm text-zinc-300 sm:grid-cols-3">
                       <div>
                         <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
                           Unified Balance
                         </p>
                         <p className="mt-2 text-lg font-semibold text-white">
                           ${unifiedBalance.toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                          Deposit Balance
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-white">
+                          ${depositBalance.toFixed(2)}
                         </p>
                       </div>
                       <div>

@@ -46,6 +46,10 @@ export type LedgerBalances = {
   channelId: `0x${string}` | null;
 };
 
+export type DepositBalance = {
+  custodyBalance: number;
+};
+
 let activeSession: SessionState | null = null;
 let sessionPromise: Promise<SessionState> | null = null;
 let sessionKey: string | null = null;
@@ -490,6 +494,46 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
     unifiedBalance: fromMinorUnits(unified),
     channelBalance: fromMinorUnits(channelAmount),
     channelId,
+  };
+}
+
+export async function getDepositBalance(): Promise<DepositBalance> {
+  ensureBrowser();
+  const session = ensureSession();
+  const network = resolveNetwork(session.config, session.chainId);
+  const custody = network?.custody_address ?? network?.custodyAddress;
+  if (!custody) {
+    throw new Error("Missing custody address for selected chain.");
+  }
+
+  const viem = await import("viem");
+  const viemChains = await import("viem/chains");
+
+  const publicClient = viem.createPublicClient({
+    chain: session.walletClient.chain ?? viemChains.sepolia,
+    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
+  });
+
+  const balances = (await publicClient.readContract({
+    address: custody,
+    abi: [
+      {
+        type: "function",
+        name: "getAccountsBalances",
+        inputs: [
+          { name: "users", type: "address[]" },
+          { name: "tokens", type: "address[]" },
+        ],
+        outputs: [{ type: "uint256[]" }],
+        stateMutability: "view",
+      },
+    ] as const,
+    functionName: "getAccountsBalances",
+    args: [[session.walletAddress], [session.token]],
+  })) as bigint[];
+
+  return {
+    custodyBalance: fromMinorUnits(balances?.[0] ?? 0n),
   };
 }
 
