@@ -2,6 +2,10 @@
 
 ![screen-1](./assets/screen-1.png)
 
+## Hackathon Submission
+
+https://ethglobal.com/showcase/yellow-penny-auction-t9ekc
+
 ## Live App
 
 https://hackmoney-chi.vercel.app/
