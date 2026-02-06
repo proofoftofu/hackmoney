@@ -1,4 +1,4 @@
-# Penny Auction with Yellow Network
+# 🤩 Yellow Penny Auction
 
 ![screen-1](./assets/screen-1.png)
 
