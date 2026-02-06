@@ -42,6 +42,7 @@ export default function AuctionDetailPage() {
     createSession,
     placeBid,
     closeOrder,
+    budget,
   } = useAuctionSession(auctionId, sellerAddress);
   const {
     hasWallet,
@@ -58,6 +59,7 @@ export default function AuctionDetailPage() {
   const [isBalanceLoading, setIsBalanceLoading] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [isFaucetLoading, setIsFaucetLoading] = useState(false);
+  const [budgetInput, setBudgetInput] = useState("100");
   const isEnded = timeLeft === 0;
 
   const refreshBalance = useCallback(async () => {
@@ -269,12 +271,27 @@ export default function AuctionDetailPage() {
                 <p className="mt-2 text-base font-semibold text-white">
                   Start the auction session to begin the timer.
                 </p>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                  <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                    Budget (USD)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={budgetInput}
+                    onChange={(event) => setBudgetInput(event.target.value)}
+                    className="h-10 w-32 rounded-xl border border-white/10 bg-black/40 px-3 text-sm text-white outline-none transition focus:border-amber-300/60"
+                  />
+                </div>
               </div>
               <button
                 type="button"
                 onClick={async () => {
-                  await createSession();
+                  const parsed = Number(budgetInput);
+                  await createSession(Number.isFinite(parsed) ? parsed : budget);
                 }}
+                disabled={!budgetInput || Number(budgetInput) <= 0}
                 className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
               >
                 Start Auction

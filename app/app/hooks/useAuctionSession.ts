@@ -28,6 +28,7 @@ type SessionData = {
 };
 
 const DEFAULT_TIMER = 15;
+const DEFAULT_BUDGET = 100;
 
 const formatTime = (seconds: number) =>
   `0:${seconds.toString().padStart(2, "0")}`;
@@ -59,6 +60,7 @@ export function useAuctionSession(
   const [currentPrice, setCurrentPrice] = useState(0.05);
   const [timeLeft, setTimeLeft] = useState(0);
   const [lastBidder, setLastBidder] = useState<string | undefined>(undefined);
+  const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [history, setHistory] = useState<SessionUpdatePayload[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -85,14 +87,23 @@ export function useAuctionSession(
     };
   }, [sessionId]);
 
-  const createSession = useCallback(async () => {
+  const createSession = useCallback(async (inputBudget?: number) => {
     if (!walletAddress) {
       throw new Error("Connect a wallet before starting the auction session.");
     }
 
+    const nextBudget =
+      typeof inputBudget === "number" && Number.isFinite(inputBudget)
+        ? inputBudget
+        : budget;
+    if (nextBudget <= 0) {
+      throw new Error("Budget must be greater than zero.");
+    }
+    setBudget(nextBudget);
+
     const allocations: RPCAppSessionAllocation[] = [
       { participant: sellerAddress, asset: "ytest.usd", amount: "0.00" },
-      { participant: walletAddress, asset: "ytest.usd", amount: "0.00" },
+      { participant: walletAddress, asset: "ytest.usd", amount: nextBudget.toFixed(2) },
     ];
 
     const response = await createAppSession({
@@ -120,7 +131,7 @@ export function useAuctionSession(
       },
       ...prev,
     ].slice(0, 8));
-  }, [walletAddress, sellerAddress, auctionId, createAppSession, currentPrice, lastBidder]);
+  }, [walletAddress, sellerAddress, auctionId, createAppSession, currentPrice, lastBidder, budget]);
 
   useEffect(() => {
     if (hasWallet && !isConnected) {
@@ -129,6 +140,7 @@ export function useAuctionSession(
       setTimeLeft(0);
       setCurrentPrice(0.05);
       setLastBidder(undefined);
+      setBudget(DEFAULT_BUDGET);
       setHistory([]);
     }
   }, [hasWallet, isConnected]);
@@ -140,6 +152,8 @@ export function useAuctionSession(
     const bidAmount = 0.01;
     const nextVersion = version + 1;
     const nextPrice = Number((currentPrice + bidAmount).toFixed(2));
+
+    if (nextPrice > budget) return;
 
     const nextState: AuctionSessionState = {
       currentPrice: nextPrice,
@@ -154,7 +168,11 @@ export function useAuctionSession(
 
     const allocations: RPCAppSessionAllocation[] = [
       { participant: sellerAddress, asset: "ytest.usd", amount: nextPrice.toFixed(2) },
-      { participant: walletAddress, asset: "ytest.usd", amount: "0.00" },
+      {
+        participant: walletAddress,
+        asset: "ytest.usd",
+        amount: Math.max(0, budget - nextPrice).toFixed(2),
+      },
     ];
 
     await submitAppState({
@@ -179,7 +197,7 @@ export function useAuctionSession(
       { id: `${Date.now()}-${Math.random()}`, sessionId, version: nextVersion, state: nextState },
       ...prev,
     ].slice(0, 8));
-  }, [sessionId, walletAddress, version, currentPrice, auctionId, sellerAddress, submitAppState]);
+  }, [sessionId, walletAddress, version, currentPrice, auctionId, sellerAddress, submitAppState, budget]);
 
   const handleSessionUpdate = useCallback(
     (payload: SessionUpdatePayload) => {
@@ -255,6 +273,7 @@ export function useAuctionSession(
     timeLeft,
     formattedTime,
     lastBidder,
+    budget,
     history,
     createSession,
     placeBid,
