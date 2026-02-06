@@ -22,7 +22,7 @@ export function HeaderChannelStatus() {
             await connectSession();
           }}
           disabled={isConnecting || !hasWallet}
-          className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
+          className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <LogIn className="h-3.5 w-3.5" />
           {isConnecting ? "Signing In..." : "Sign In"}
@@ -35,7 +35,7 @@ export function HeaderChannelStatus() {
             await disconnectSession();
           }}
           disabled={isConnecting}
-          className="inline-flex items-center gap-2 rounded-full bg-rose-500/90 px-4 py-2 text-xs font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:bg-rose-500/40"
+          className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-rose-500/90 px-4 py-2 text-xs font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <LogOut className="h-3.5 w-3.5" />
           Sign Out

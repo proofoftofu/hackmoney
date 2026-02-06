@@ -34,7 +34,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={openConnectModal}
-                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
                     >
                       Connect Wallet
                     </button>

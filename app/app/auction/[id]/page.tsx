@@ -152,7 +152,7 @@ export default function AuctionDetailPage() {
                   <button
                     type="button"
                     onClick={openConnectModal}
-                    className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
                   >
                     {connected ? "Wallet Connected" : "Connect Wallet"}
                   </button>
@@ -183,7 +183,7 @@ export default function AuctionDetailPage() {
             <button
               type="button"
               onClick={handleTryAgain}
-              className="mt-6 inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+              className="mt-6 inline-flex cursor-pointer items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
             >
               Try One More Time
             </button>
@@ -234,7 +234,7 @@ export default function AuctionDetailPage() {
                   await connectSession();
                 }}
                 disabled={isConnecting}
-                className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isConnecting ? "Authenticating..." : "Authenticate"}
               </button>
@@ -263,7 +263,7 @@ export default function AuctionDetailPage() {
                   type="button"
                   onClick={refreshBalance}
                   disabled={isBalanceLoading}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-zinc-100 transition hover:border-amber-300/40 hover:text-amber-200 disabled:cursor-not-allowed"
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-zinc-100 transition hover:border-amber-300/40 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Refresh
                 </button>
@@ -272,7 +272,7 @@ export default function AuctionDetailPage() {
                     type="button"
                     onClick={requestFaucet}
                     disabled={isFaucetLoading}
-                    className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isFaucetLoading
                       ? "Requesting USDC..."
@@ -313,7 +313,7 @@ export default function AuctionDetailPage() {
                   await createSession(Number.isFinite(parsed) ? parsed : budget);
                 }}
                 disabled={!budgetInput || Number(budgetInput) <= 0}
-                className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Start Auction
               </button>
@@ -388,7 +388,7 @@ export default function AuctionDetailPage() {
 
                 <button
                   onClick={handleBid}
-                  className="relative overflow-hidden rounded-2xl bg-amber-400 px-5 py-4 text-lg font-semibold text-slate-950 shadow-[0_20px_60px_-30px_rgba(250,204,21,0.8)] transition hover:bg-amber-300 disabled:cursor-wait"
+                  className="relative overflow-hidden rounded-2xl bg-amber-400 px-5 py-4 text-lg font-semibold text-slate-950 shadow-[0_20px_60px_-30px_rgba(250,204,21,0.8)] transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={isSigning || isEnded || !isConnected || !sessionId}
                 >
                   <span className="relative z-10 flex items-center justify-center gap-3">
@@ -417,7 +417,7 @@ export default function AuctionDetailPage() {
                     <p className="mt-2 text-zinc-400">You can get the product now.</p>
                     <button
                       onClick={handleProceed}
-                      className="mt-4 w-full rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-200 transition hover:border-amber-400 hover:text-amber-100 disabled:cursor-wait"
+                      className="mt-4 w-full cursor-pointer rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-200 transition hover:border-amber-400 hover:text-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
                       disabled={isClosing || isClosed}
                     >
                       {isClosed

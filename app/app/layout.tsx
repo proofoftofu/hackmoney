@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
-import Link from "next/link";
 import "./globals.css";
 import { YellowProvider } from "./providers/YellowProvider";
 import { Web3Provider } from "./providers/Web3Provider";
@@ -41,17 +40,17 @@ export default function RootLayout({
 
               <header className="relative z-10 border-b border-white/10 bg-slate-950/70 backdrop-blur">
                 <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
-                  <Link href="/" className="flex items-center gap-3">
+                  <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 via-amber-300 to-yellow-200 text-slate-950 shadow-lg shadow-amber-500/30">
                       Y
                     </div>
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.2em] text-amber-300">
-                      Yellow Network
-                    </p>
-                    <p className="text-xl font-semibold text-white">Penny Auction</p>
+                    <div>
+                      <p className="text-sm uppercase tracking-[0.2em] text-amber-300">
+                        Yellow Network
+                      </p>
+                      <p className="text-xl font-semibold text-white">Penny Auction</p>
+                    </div>
                   </div>
-                  </Link>
                   <div className="flex items-center gap-3">
                     <WalletButton />
                   </div>
