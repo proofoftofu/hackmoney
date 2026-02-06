@@ -29,6 +29,8 @@ type SessionData = {
 
 const DEFAULT_TIMER = 15;
 const DEFAULT_BUDGET = 100;
+const BID_FEE = 1.0;
+const BID_INCREMENT = 0.01;
 
 const formatTime = (seconds: number) =>
   `0:${seconds.toString().padStart(2, "0")}`;
@@ -61,13 +63,24 @@ export function useAuctionSession(
   const [timeLeft, setTimeLeft] = useState(0);
   const [lastBidder, setLastBidder] = useState<string | undefined>(undefined);
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
+  const [totalFees, setTotalFees] = useState(0);
   const [history, setHistory] = useState<SessionUpdatePayload[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const versionRef = useRef(0);
+  const baseVersionRef = useRef(0);
 
   useEffect(() => {
     versionRef.current = version;
   }, [version]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setTotalFees(0);
+      return;
+    }
+    const bidsCount = Math.max(0, version - baseVersionRef.current);
+    setTotalFees(Number((bidsCount * BID_FEE).toFixed(2)));
+  }, [sessionId, version]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -101,8 +114,8 @@ export function useAuctionSession(
       typeof inputBudget === "number" && Number.isFinite(inputBudget)
         ? inputBudget
         : budget;
-    if (nextBudget <= currentPrice) {
-      throw new Error("Budget must be greater than the starting price.");
+    if (nextBudget <= currentPrice + BID_FEE) {
+      throw new Error("Budget must be greater than the starting price plus fee.");
     }
     setBudget(nextBudget);
 
@@ -122,6 +135,7 @@ export function useAuctionSession(
     });
 
     const baseVersion = response.version ?? 0;
+    baseVersionRef.current = baseVersion;
     setSessionId(response.appSessionId);
     setVersion(baseVersion);
     setTimeLeft(DEFAULT_TIMER);
@@ -139,12 +153,13 @@ export function useAuctionSession(
       state: seedState,
     };
 
+    const seedTotal = initialPrice + BID_FEE;
     const seedAllocations: RPCAppSessionAllocation[] = [
-      { participant: sellerAddress, asset: "ytest.usd", amount: initialPrice.toFixed(2) },
+      { participant: sellerAddress, asset: "ytest.usd", amount: seedTotal.toFixed(2) },
       {
         participant: walletAddress,
         asset: "ytest.usd",
-        amount: Math.max(0, nextBudget - initialPrice).toFixed(2),
+        amount: Math.max(0, nextBudget - seedTotal).toFixed(2),
       },
     ];
 
@@ -196,6 +211,8 @@ export function useAuctionSession(
       setCurrentPrice(0.05);
       setLastBidder(undefined);
       setBudget(DEFAULT_BUDGET);
+      setTotalFees(0);
+      baseVersionRef.current = 0;
       setHistory([]);
     }
   }, [hasWallet, isConnected]);
@@ -204,11 +221,15 @@ export function useAuctionSession(
     if (!sessionId || !walletAddress) return;
     console.log("[yellow] placeBid", { auctionId, sessionId, walletAddress });
 
-    const bidAmount = 0.01;
+    const bidAmount = BID_INCREMENT;
     const nextVersion = version + 1;
     const nextPrice = Number((currentPrice + bidAmount).toFixed(2));
 
-    if (nextPrice > budget) return;
+    const nextTotalFees = Number(
+      (Math.max(0, nextVersion - baseVersionRef.current) * BID_FEE).toFixed(2)
+    );
+    const sellerAmount = Number((nextPrice + nextTotalFees).toFixed(2));
+    if (sellerAmount > budget) return;
 
     const nextState: AuctionSessionState = {
       currentPrice: nextPrice,
@@ -222,11 +243,11 @@ export function useAuctionSession(
     };
 
     const allocations: RPCAppSessionAllocation[] = [
-      { participant: sellerAddress, asset: "ytest.usd", amount: nextPrice.toFixed(2) },
+      { participant: sellerAddress, asset: "ytest.usd", amount: sellerAmount.toFixed(2) },
       {
         participant: walletAddress,
         asset: "ytest.usd",
-        amount: Math.max(0, budget - nextPrice).toFixed(2),
+        amount: Math.max(0, budget - sellerAmount).toFixed(2),
       },
     ];
 
@@ -249,6 +270,7 @@ export function useAuctionSession(
     setCurrentPrice(nextPrice);
     setTimeLeft(DEFAULT_TIMER);
     setLastBidder(walletAddress);
+    versionRef.current = nextVersion;
     setHistory((prev) => {
       if (prev.some((entry) => entry.sessionId === sessionId && entry.version === nextVersion)) {
         return prev;
@@ -341,6 +363,7 @@ export function useAuctionSession(
     formattedTime,
     lastBidder,
     budget,
+    totalFees,
     history,
     createSession,
     placeBid,

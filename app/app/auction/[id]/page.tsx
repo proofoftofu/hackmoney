@@ -36,6 +36,7 @@ export default function AuctionDetailPage() {
     placeBid,
     closeOrder,
     budget,
+    totalFees,
   } = useAuctionSession(auctionId, sellerAddress);
   const {
     hasWallet,
@@ -302,31 +303,47 @@ export default function AuctionDetailPage() {
                 <div className="mt-10 flex h-56 items-center justify-center rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(250,204,21,0.25),_transparent_60%)] text-4xl font-semibold text-amber-200">
                   AUR-01
                 </div>
-                <div className="mt-6 flex flex-wrap items-center gap-6">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Current Price
-                    </p>
-                    <p className="mt-2 text-3xl font-semibold text-white">
-                      ${currentPrice.toFixed(2)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                      Last Bidder
-                    </p>
-                    <p className="mt-2 font-mono text-sm text-amber-200">
-                      {lastBidder ?? "—"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col justify-between gap-6 rounded-3xl border border-white/10 bg-black/40 p-6">
+              <div className="mt-6 flex flex-wrap items-center gap-6">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                    Countdown
+                    Current Price
                   </p>
+                  <p className="mt-2 text-3xl font-semibold text-white">
+                    ${currentPrice.toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                    Accumulated Fee
+                  </p>
+                  <p className="mt-2 text-3xl font-semibold text-white">
+                    ${totalFees.toFixed(2)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                    Last Bidder
+                  </p>
+                  <p className="mt-2 font-mono text-sm text-amber-200">
+                    {lastBidder ?? "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                    Seller
+                  </p>
+                  <p className="mt-2 font-mono text-sm text-amber-200">
+                    {sellerAddress}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col justify-between gap-6 rounded-3xl border border-white/10 bg-black/40 p-6">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                  Countdown
+                </p>
                   <motion.div
                     key={timeLeft}
                     initial={{ scale: 0.96, opacity: 0.7 }}
@@ -337,10 +354,10 @@ export default function AuctionDetailPage() {
                     <Timer className="h-6 w-6" />
                     {formattedTime}
                   </motion.div>
-                  <p className="mt-4 text-sm text-zinc-400">
-                    Every bid extends the window to 15 seconds.
-                  </p>
-                </div>
+                <p className="mt-4 text-sm text-zinc-400">
+                  Bid fee $1.00 · Bid increment $0.01 · Every bid extends the window to 15 seconds.
+                </p>
+              </div>
 
                 <button
                   onClick={handleBid}
