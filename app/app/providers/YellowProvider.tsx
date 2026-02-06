@@ -15,6 +15,7 @@ import {
   type CreateAppSessionInput,
   type CreateAppSessionResult,
   type SubmitAppStateInput,
+  getLedgerBalances,
 } from "../lib/yellowClient";
 
 type YellowContextValue = {
@@ -30,6 +31,7 @@ type YellowContextValue = {
   createAppSession: (input: CreateAppSessionInput) => Promise<CreateAppSessionResult>;
   submitAppState: (input: SubmitAppStateInput) => Promise<void>;
   closeAppSession: (input: CloseAppSessionInput) => Promise<void>;
+  getUnifiedBalance: () => Promise<number | null>;
   subscribe: (handler: (message: RPCResponse) => void) => () => void;
 };
 
@@ -138,6 +140,17 @@ export function YellowProvider({ children }: YellowProviderProps) {
     await sdkCloseAppSession(input);
   }, []);
 
+  const getUnifiedBalance = useCallback(async () => {
+    console.log("[yellow] getUnifiedBalance");
+    try {
+      const balances = await getLedgerBalances();
+      return balances.unifiedBalance;
+    } catch (error) {
+      console.warn("[yellow] Failed to fetch unified balance", error);
+      return null;
+    }
+  }, []);
+
   const subscribe = useCallback(
     (handler: (message: RPCResponse) => void) => {
       console.log("[yellow] subscribe");
@@ -160,6 +173,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
       createAppSession,
       submitAppState,
       closeAppSession,
+      getUnifiedBalance,
       subscribe,
     }),
     [
@@ -175,6 +189,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
       createAppSession,
       submitAppState,
       closeAppSession,
+      getUnifiedBalance,
       subscribe,
     ]
   );

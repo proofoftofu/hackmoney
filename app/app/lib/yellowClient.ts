@@ -74,6 +74,10 @@ export type CloseAppSessionInput = {
   allocations: RPCAppSessionAllocation[];
 };
 
+export type LedgerBalances = {
+  unifiedBalance: number;
+};
+
 let activeSession: SessionState | null = null;
 let sessionPromise: Promise<SessionState> | null = null;
 let sessionKey: string | null = null;
@@ -331,6 +335,49 @@ const ensureSession = () => {
   return activeSession;
 };
 
+const parseNumericValue = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "bigint") {
+    return Number(value) / 100;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = parseNumericValue(entry);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = [
+      "available",
+      "available_balance",
+      "unified",
+      "unified_balance",
+      "balance",
+      "amount",
+      "total",
+      "free",
+    ];
+    for (const key of keys) {
+      if (record[key] !== undefined) {
+        const found = parseNumericValue(record[key]);
+        if (found !== null) return found;
+      }
+    }
+  }
+  return null;
+};
+
 export function getActiveSession() {
   return activeSession;
 }
@@ -415,6 +462,25 @@ export async function createAppSession(
     status: params?.status,
     response,
   };
+}
+
+export async function getLedgerBalances(): Promise<LedgerBalances> {
+  const session = ensureSession();
+  const { createGetLedgerBalancesMessage } = await import("@erc7824/nitrolite");
+
+  const message = await createGetLedgerBalancesMessage(
+    session.sessionSigner,
+    session.walletAddress,
+    Date.now()
+  );
+
+  log("Requesting ledger balances");
+  const response = (await session.client.sendMessage(message)) as RPCResponse;
+  const unifiedBalance =
+    parseNumericValue((response as any)?.params?.ledgerBalances?.[0]?.amount) ?? 0;
+
+  log("Ledger balances received", { unifiedBalance });
+  return { unifiedBalance };
 }
 
 export async function submitAppState(input: SubmitAppStateInput) {
