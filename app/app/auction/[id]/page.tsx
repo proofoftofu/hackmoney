@@ -15,14 +15,7 @@ import { useAuctionSession } from "../../hooks/useAuctionSession";
 import { useYellow } from "../../hooks/useYellow";
 
 const DEFAULT_SELLER: `0x${string}` =
-  "0xF39fd6e51aad88F6F4ce6aB8827279cffFb92266";
-
-const AUCTION_SELLERS: Record<string, `0x${string}`> = {
-  aurora: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
-  zenith: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-  lumen: "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
-  pulse: "0x14dC79964da2C08b23698B3D3cc7Ca32193d9955",
-};
+  "0xd801330692189B98a47b4676aa759fD16bB47d02";
 
 export default function AuctionDetailPage() {
   const params = useParams<{ id: string }>();
@@ -31,7 +24,7 @@ export default function AuctionDetailPage() {
     if (Array.isArray(raw)) return raw[0] ?? "aurora";
     return raw ?? "aurora";
   }, [params]);
-  const sellerAddress = AUCTION_SELLERS[auctionId] ?? DEFAULT_SELLER;
+  const sellerAddress = DEFAULT_SELLER;
   const {
     sessionId,
     currentPrice,

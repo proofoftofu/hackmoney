@@ -63,6 +63,11 @@ export function useAuctionSession(
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [history, setHistory] = useState<SessionUpdatePayload[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const versionRef = useRef(0);
+
+  useEffect(() => {
+    versionRef.current = version;
+  }, [version]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -96,14 +101,18 @@ export function useAuctionSession(
       typeof inputBudget === "number" && Number.isFinite(inputBudget)
         ? inputBudget
         : budget;
-    if (nextBudget <= 0) {
-      throw new Error("Budget must be greater than zero.");
+    if (nextBudget <= currentPrice) {
+      throw new Error("Budget must be greater than the starting price.");
     }
     setBudget(nextBudget);
 
     const allocations: RPCAppSessionAllocation[] = [
       { participant: sellerAddress, asset: "ytest.usd", amount: "0.00" },
-      { participant: walletAddress, asset: "ytest.usd", amount: nextBudget.toFixed(2) },
+      {
+        participant: walletAddress,
+        asset: "ytest.usd",
+        amount: nextBudget.toFixed(2),
+      },
     ];
 
     const response = await createAppSession({
@@ -112,26 +121,72 @@ export function useAuctionSession(
       application: `YellowAuction`,
     });
 
+    const baseVersion = response.version ?? 0;
     setSessionId(response.appSessionId);
-    setVersion(response.version ?? 0);
+    setVersion(baseVersion);
     setTimeLeft(DEFAULT_TIMER);
 
+    const initialPrice = 0.05;
+    const nextVersion = baseVersion + 1;
     const seedState: AuctionSessionState = {
-      currentPrice,
+      currentPrice: initialPrice,
       timeLeft: DEFAULT_TIMER,
-      lastBidder,
+      lastBidder: walletAddress,
     };
 
-    setHistory((prev) => [
+    const seedSessionData: SessionData = {
+      auctionId,
+      state: seedState,
+    };
+
+    const seedAllocations: RPCAppSessionAllocation[] = [
+      { participant: sellerAddress, asset: "ytest.usd", amount: initialPrice.toFixed(2) },
       {
-        id: `${Date.now()}-${Math.random()}`,
-        sessionId: response.appSessionId,
-        version: response.version ?? 0,
-        state: seedState,
+        participant: walletAddress,
+        asset: "ytest.usd",
+        amount: Math.max(0, nextBudget - initialPrice).toFixed(2),
       },
-      ...prev,
-    ].slice(0, 8));
-  }, [walletAddress, sellerAddress, auctionId, createAppSession, currentPrice, lastBidder, budget]);
+    ];
+
+    await submitAppState({
+      appSessionId: response.appSessionId as `0x${string}`,
+      allocations: seedAllocations,
+      version: nextVersion,
+      intent: RPCAppStateIntent.Operate,
+      sessionData: JSON.stringify(seedSessionData),
+    });
+
+    setVersion(nextVersion);
+    versionRef.current = nextVersion;
+    setCurrentPrice(initialPrice);
+    setLastBidder(walletAddress);
+
+    const seedVersion = response.version ?? 0;
+    const historyVersion = nextVersion;
+    setHistory((prev) => {
+      if (prev.some((entry) => entry.sessionId === response.appSessionId && entry.version === historyVersion)) {
+        return prev;
+      }
+      return [
+        {
+          id: `${Date.now()}-${Math.random()}`,
+          sessionId: response.appSessionId,
+          version: historyVersion,
+          state: seedState,
+        },
+        ...prev,
+      ].slice(0, 8);
+    });
+  }, [
+    walletAddress,
+    sellerAddress,
+    auctionId,
+    createAppSession,
+    currentPrice,
+    lastBidder,
+    budget,
+    submitAppState,
+  ]);
 
   useEffect(() => {
     if (hasWallet && !isConnected) {
@@ -190,20 +245,26 @@ export function useAuctionSession(
     });
 
     setVersion(nextVersion);
+    versionRef.current = nextVersion;
     setCurrentPrice(nextPrice);
     setTimeLeft(DEFAULT_TIMER);
     setLastBidder(walletAddress);
-    setHistory((prev) => [
-      { id: `${Date.now()}-${Math.random()}`, sessionId, version: nextVersion, state: nextState },
-      ...prev,
-    ].slice(0, 8));
+    setHistory((prev) => {
+      if (prev.some((entry) => entry.sessionId === sessionId && entry.version === nextVersion)) {
+        return prev;
+      }
+      return [
+        { id: `${Date.now()}-${Math.random()}`, sessionId, version: nextVersion, state: nextState },
+        ...prev,
+      ].slice(0, 8);
+    });
   }, [sessionId, walletAddress, version, currentPrice, auctionId, sellerAddress, submitAppState, budget]);
 
   const handleSessionUpdate = useCallback(
     (payload: SessionUpdatePayload) => {
       if (!payload) return;
       if (payload.sessionId !== sessionId) return;
-      if (payload.version <= version) return;
+      if (payload.version <= versionRef.current) return;
       console.log("[yellow] session update", payload);
 
       const nextState = payload.state;
@@ -211,10 +272,16 @@ export function useAuctionSession(
       setCurrentPrice(nextState.currentPrice);
       setLastBidder(nextState.lastBidder);
       setVersion(payload.version);
+      versionRef.current = payload.version;
       setTimeLeft(DEFAULT_TIMER);
-      setHistory((prev) => [payload, ...prev].slice(0, 8));
+      setHistory((prev) => {
+        if (prev.some((entry) => entry.sessionId === payload.sessionId && entry.version === payload.version)) {
+          return prev;
+        }
+        return [payload, ...prev].slice(0, 8);
+      });
     },
-    [sessionId, version]
+    [sessionId]
   );
 
   useEffect(() => {
