@@ -37,6 +37,7 @@ export default function AuctionDetailPage() {
     closeOrder,
     budget,
     totalFees,
+    operatorFees,
   } = useAuctionSession(auctionId, sellerAddress);
   const {
     hasWallet,
@@ -176,7 +177,18 @@ export default function AuctionDetailPage() {
             <h2 className="mt-4 text-3xl font-semibold text-white">
               Hope you enjoyed penny auction with Yellow Network.
             </h2>
-            <div className="mt-6 grid gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-sm text-zinc-300">
+            <div className="mt-6 grid gap-3 rounded-2xl border border-emerald-300/30 bg-emerald-300/10 px-4 py-4 text-left text-sm text-emerald-100">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-emerald-200">
+                <ShieldCheck className="h-4 w-4" />
+                Escrow Protection
+              </div>
+              <p className="text-sm text-emerald-50/90">
+                This auction is managed by a 2-of-3 escrow. If a user sends a fake
+                request the operator can detect and prevent it, and if the operator
+                is malicious the user can still take the assets back.
+              </p>
+            </div>
+            <div className="mt-4 grid gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-sm text-zinc-300">
               <div className="flex items-center justify-between">
                 <span>Total tx count</span>
                 <span className="font-semibold text-white">{history.length}</span>
@@ -185,6 +197,12 @@ export default function AuctionDetailPage() {
                 <span>Total balance change</span>
                 <span className="font-semibold text-white">
                   ${(currentPrice + totalFees).toFixed(2)} paid
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Operator fee</span>
+                <span className="font-semibold text-white">
+                  ${operatorFees.toFixed(2)}
                 </span>
               </div>
               <div className="flex items-center justify-between">

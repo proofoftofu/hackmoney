@@ -448,6 +448,7 @@ export function useAuctionSession(
     lastBidder,
     budget,
     totalFees,
+    operatorFees,
     history,
     createSession,
     placeBid,
