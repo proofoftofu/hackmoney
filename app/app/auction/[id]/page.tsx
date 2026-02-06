@@ -11,6 +11,7 @@ import {
   Waves,
 } from "lucide-react";
 import { useAuctionSession } from "../../hooks/useAuctionSession";
+import { useYellow } from "../../hooks/useYellow";
 
 export default function AuctionDetailPage() {
   const {
@@ -21,7 +22,13 @@ export default function AuctionDetailPage() {
     history,
     placeBid,
   } = useAuctionSession("aurora");
+  const { transfer } = useYellow();
   const [isSigning, setIsSigning] = useState(false);
+  const [transferAddress, setTransferAddress] = useState("");
+  const [transferAmount, setTransferAmount] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendSuccess, setSendSuccess] = useState<string | null>(null);
 
   const handleBid = async () => {
     if (isSigning) return;
@@ -29,6 +36,37 @@ export default function AuctionDetailPage() {
     await new Promise((resolve) => setTimeout(resolve, 600));
     await placeBid();
     setIsSigning(false);
+  };
+
+  const handleSend = async () => {
+    if (isSending) return;
+    setSendError(null);
+    setSendSuccess(null);
+
+    const trimmedAddress = transferAddress.trim();
+    const trimmedAmount = transferAmount.trim();
+    const amountValue = Number(trimmedAmount);
+    if (!trimmedAddress) {
+      setSendError("Enter a destination address.");
+      return;
+    }
+    if (!trimmedAmount || Number.isNaN(amountValue) || amountValue <= 0) {
+      setSendError("Enter a valid amount.");
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      await transfer(trimmedAddress as `0x${string}`, trimmedAmount);
+      setSendSuccess("Transfer sent.");
+      setTransferAmount("");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to send transfer.";
+      setSendError(message);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -180,6 +218,52 @@ export default function AuctionDetailPage() {
                 </motion.div>
               ))}
             </AnimatePresence>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
+          <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+            Send Transfer
+          </p>
+          <p className="mt-2 text-lg font-semibold text-white">
+            Wallet payout
+          </p>
+
+          <div className="mt-5 grid gap-3">
+            <label className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+              Destination address
+            </label>
+            <input
+              value={transferAddress}
+              onChange={(event) => setTransferAddress(event.target.value)}
+              placeholder="0x..."
+              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-amber-300/60 focus:outline-none"
+            />
+            <label className="mt-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
+              Amount (ytest.usd)
+            </label>
+            <input
+              value={transferAmount}
+              onChange={(event) => setTransferAmount(event.target.value)}
+              placeholder="10"
+              inputMode="decimal"
+              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-amber-300/60 focus:outline-none"
+            />
+
+            <button
+              onClick={handleSend}
+              disabled={isSending}
+              className="mt-2 rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/20 disabled:cursor-wait"
+            >
+              {isSending ? "Sending..." : "Send transfer"}
+            </button>
+
+            {sendError ? (
+              <p className="text-xs text-red-300">{sendError}</p>
+            ) : null}
+            {sendSuccess ? (
+              <p className="text-xs text-emerald-300">{sendSuccess}</p>
+            ) : null}
           </div>
         </div>
 

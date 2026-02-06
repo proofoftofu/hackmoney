@@ -11,6 +11,7 @@ import {
   openChannel as sdkOpenChannel,
   closeChannel as sdkCloseChannel,
   signSessionMessage,
+  transfer as sdkTransfer,
   withdraw as sdkWithdraw,
 } from "../lib/yellowClient";
 
@@ -32,6 +33,7 @@ type YellowContextValue = {
   closeChannel: () => Promise<void>;
   deposit: (amount: number) => Promise<void>;
   withdraw: (amount: number) => Promise<void>;
+  transfer: (destination: `0x${string}`, amount: string) => Promise<void>;
   isClosing: boolean;
 };
 
@@ -314,6 +316,13 @@ export function YellowProvider({ children }: YellowProviderProps) {
     [refreshBalances]
   );
 
+  const transfer = useCallback(
+    async (destination: `0x${string}`, amount: string) => {
+      await sdkTransfer({ destination, amount });
+    },
+    []
+  );
+
   const value = useMemo<YellowContextValue>(
     () => ({
       ws,
@@ -333,6 +342,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
       closeChannel,
       deposit,
       withdraw,
+      transfer,
       isClosing,
     }),
     [
@@ -353,6 +363,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
       closeChannel,
       deposit,
       withdraw,
+      transfer,
       isClosing,
     ]
   );

@@ -913,6 +913,45 @@ export async function withdraw(amount: number): Promise<void> {
   );
 }
 
+export type TransferRequest = {
+  destination: `0x${string}`;
+  amount: string;
+  asset?: string;
+};
+
+export async function transfer(request: TransferRequest): Promise<void> {
+  ensureBrowser();
+  const session = ensureSession();
+  const { createTransferMessage } = await import("@erc7824/nitrolite");
+
+  if (session.ws.readyState !== WebSocket.OPEN) {
+    throw new Error("WebSocket is not connected.");
+  }
+  if (!request.destination) {
+    throw new Error("Destination address is required.");
+  }
+  if (!request.amount) {
+    throw new Error("Transfer amount is required.");
+  }
+
+  const transferMsg = await createTransferMessage(
+    session.sessionSigner,
+    {
+      destination: request.destination,
+      allocations: [
+        {
+          asset: request.asset ?? "ytest.usd",
+          amount: request.amount,
+        },
+      ],
+    },
+    Date.now()
+  );
+
+  session.ws.send(transferMsg);
+  log("Transfer message sent.");
+}
+
 export async function closeChannel(): Promise<string> {
   ensureBrowser();
   const session = ensureSession();
