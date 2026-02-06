@@ -110,6 +110,14 @@ const log = (...args: unknown[]) => {
   console.log("[yellowClient]", ...args);
 };
 
+const logDebug = (tag: string, label: string, data?: unknown) => {
+  if (data === undefined) {
+    log(`${tag} ${label}`);
+    return;
+  }
+  log(`${tag} ${label}`, data);
+};
+
 const waitForOpen = (ws: WebSocket) =>
   new Promise<void>((resolve, reject) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -151,6 +159,14 @@ const waitForResponse = (
       try {
         const message = JSON.parse(String(event.data));
         if (message?.error) {
+          if (debugTag) {
+            logDebug(debugTag, "error response", {
+              error: message.error,
+              method: message?.method ?? message?.res?.[1],
+              id: message?.id,
+              raw: message,
+            });
+          }
           cleanup();
           reject(new Error(message.error.message || "RPC error"));
           return;
@@ -160,9 +176,19 @@ const waitForResponse = (
           log(`${debugTag} received`, method ?? "unknown");
         }
         if (!expected.includes(method)) return;
+        if (debugTag) {
+          logDebug(debugTag, "response payload", {
+            method,
+            id: message?.id,
+            raw: message,
+          });
+        }
         cleanup();
         resolve(message);
       } catch (error) {
+        if (debugTag) {
+          logDebug(debugTag, "parse error", { error });
+        }
         cleanup();
         reject(error);
       }
@@ -222,14 +248,23 @@ const toBigInt = (value: unknown) => {
 
 const fromMinorUnits = (value: bigint) => Number(value) / 100;
 
-const pickNumeric = (value: unknown): bigint | null => {
+const parseNumericValue = (value: unknown): number | null => {
   if (value === null || value === undefined) return null;
-  if (typeof value === "bigint" || typeof value === "number" || typeof value === "string") {
-    return toBigInt(value);
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "bigint") {
+    return fromMinorUnits(value);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
   }
   if (Array.isArray(value)) {
     for (const entry of value) {
-      const found = pickNumeric(entry);
+      const found = parseNumericValue(entry);
       if (found !== null) return found;
     }
     return null;
@@ -248,7 +283,7 @@ const pickNumeric = (value: unknown): bigint | null => {
     ];
     for (const key of keys) {
       if (record[key] !== undefined) {
-        const found = pickNumeric(record[key]);
+        const found = parseNumericValue(record[key]);
         if (found !== null) return found;
       }
     }
@@ -256,7 +291,7 @@ const pickNumeric = (value: unknown): bigint | null => {
   return null;
 };
 
-const extractUnifiedBalance = (payload: any): bigint => {
+const extractUnifiedBalance = (payload: any): number => {
   const candidates = [
     payload?.balances,
     payload?.balances?.available,
@@ -272,16 +307,18 @@ const extractUnifiedBalance = (payload: any): bigint => {
     payload?.result?.ledger?.balances,
     payload?.result?.ledger?.available,
     payload?.result?.ledger?.balance,
+    payload?.ledger_balances,
+    payload?.result?.ledger_balances,
     payload?.available_balance,
     payload?.unified_balance,
     payload?.balance,
     payload?.available,
   ];
   for (const candidate of candidates) {
-    const value = pickNumeric(candidate);
+    const value = parseNumericValue(candidate);
     if (value !== null) return value;
   }
-  return 0n;
+  return 0;
 };
 
 const ensureSession = () => {
@@ -386,6 +423,16 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
         ...authParams,
       });
 
+      logDebug("auth", "request params", {
+        address: config.address,
+        application: config.application ?? "Yellow Auction",
+        session_key: authParams.session_key,
+        scope: authParams.scope,
+        expires_at: authParams.expires_at.toString(),
+        allowances_count: authParams.allowances?.length ?? 0,
+        chainId,
+      });
+
       log("Sending auth_request...");
       config.onAuthRequest?.();
       ws.send(authRequest);
@@ -396,6 +443,9 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
         throw new Error("Missing auth challenge from Yellow.");
       }
       log("Received auth_challenge.");
+      logDebug("auth", "challenge info", {
+        length: String(challengeMessage).length,
+      });
       config.onAuthChallenge?.();
 
       const authSigner = createEIP712AuthMessageSigner(
@@ -519,18 +569,18 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
     (sessionState.channelId as `0x${string}` | undefined) ??
     null;
   const channelAmount =
-    pickNumeric(
+    parseNumericValue(
       openChannel?.amount ??
         openChannel?.balance ??
         openChannel?.total ??
         openChannel?.balances ??
         openChannel?.allocations
-    ) ?? 0n;
+    ) ?? 0;
   const unified = extractUnifiedBalance(payload);
 
   log("Ledger balances fetched:", {
-    unifiedRaw: unified.toString(),
-    channelRaw: channelAmount.toString(),
+    unifiedRaw: String(unified),
+    channelRaw: String(channelAmount),
     channelId,
   });
 
@@ -540,8 +590,8 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
   }
 
   return {
-    unifiedBalance: fromMinorUnits(unified),
-    channelBalance: fromMinorUnits(channelAmount),
+    unifiedBalance: unified,
+    channelBalance: channelAmount,
     channelId,
   };
 }
