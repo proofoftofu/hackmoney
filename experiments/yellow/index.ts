@@ -280,6 +280,10 @@ ws.onmessage = async (event) => {
         process.exit(1); // Exit on error to prevent infinite loops
     }
 
+    if(response.res){
+        console.log("response.res[1]", response.res[1])
+    }
+
     if (response.res && response.res[1] === 'auth_challenge') {
         if (isAuthenticated) {
             console.log('  Ignoring auth_challenge (already authenticated)');
