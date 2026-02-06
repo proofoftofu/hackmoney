@@ -35,7 +35,7 @@ export async function authenticateWallet(client: Client, walletAccount: WalletCl
         session_key: sessionKey.address,
         application: 'Test app',
         allowances: [{
-            asset: 'usdc',
+            asset: 'ytest.usd',
             amount: '1',
         }],
         expires_at: BigInt(sessionExpireTimestamp),
@@ -50,7 +50,7 @@ export async function authenticateWallet(client: Client, walletAccount: WalletCl
             participant: sessionKey.address,
             expire: sessionExpireTimestamp,
             allowances: [{
-                asset: 'usdc',
+                asset: 'ytest.usd',
                 amount: '1',
             }],
             session_key: sessionKey.address,
@@ -66,6 +66,8 @@ export async function authenticateWallet(client: Client, walletAccount: WalletCl
     }
 
     client.listen(async (message: RPCResponse) => {
+        console.log("debug: client.listen", message)
+
 
         if (message.method === RPCMethod.AuthChallenge) {
             await handleAuthChallenge(message);

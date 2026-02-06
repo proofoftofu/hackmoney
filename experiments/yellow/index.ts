@@ -83,8 +83,8 @@ export async function main() {
     // Define how much of each asset each participant starts with
     // In this example: userAddress gets 0.01 USDC, partnerAddress gets 0
     const allocations = [
-        { participant: userAddress, asset: 'usdc', amount: '0.01' },
-        { participant: partnerAddress, asset: 'usdc', amount: '0.00' }
+        { participant: userAddress, asset: 'ytest.usd', amount: '0.01' },
+        { participant: partnerAddress, asset: 'ytest.usd', amount: '0.00' }
     ] as RPCAppSessionAllocation[];
     
     // ============================================================================
@@ -111,8 +111,8 @@ export async function main() {
     // Here we're transferring the full 0.01 USDC from user to partner
     // This demonstrates off-chain state updates without on-chain transactions
     const finalAllocations = [
-        {participant: userAddress, asset: 'usdc', amount: '0.00' },
-        {participant: partnerAddress, asset: 'usdc', amount: '0.01' }
+        {participant: userAddress, asset: 'ytest.usd', amount: '0.00' },
+        {participant: partnerAddress, asset: 'ytest.usd', amount: '0.01' }
     ] as RPCAppSessionAllocation[];
     
     // Submit the updated state to Yellow
