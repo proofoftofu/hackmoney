@@ -158,6 +158,8 @@ const waitForResponse = (
     const handler = (event: MessageEvent) => {
       try {
         const message = JSON.parse(String(event.data));
+        console.log("DEBUG: message", message)
+
         if (message?.error) {
           if (debugTag) {
             logDebug(debugTag, "error response", {
@@ -556,7 +558,7 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
   await requestChannels(sessionState);
   const channelsResp = await waitForResponse(
     sessionState.ws,
-    "channels",
+    "get_channels",
     20000,
     "ledger"
   );
