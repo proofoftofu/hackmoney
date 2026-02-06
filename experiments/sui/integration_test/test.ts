@@ -1,19 +1,19 @@
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
-import { SuiGrpcClient } from '@mysten/sui/grpc';
 import { fromBase64 } from '@mysten/sui/utils';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import * as dotenv from 'dotenv';
 
+import { SuiJsonRpcClient, getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
+
 dotenv.config();
 
-// 1. CONFIGURATION
 const PACKAGE_ID = "0xdea9a34e90c69450d02a172b03ebc1be25959a48e4f1e9722f4dbae9d7e4643e";
 let CHANNEL_ID: string | null = null; 
 
-const client = new SuiGrpcClient({
+const client = new SuiJsonRpcClient({
     network: 'testnet',
-    baseUrl: 'https://fullnode.testnet.sui.io:443',
+    url: getJsonRpcFullnodeUrl('testnet'),
 });
 
 if (!process.env.SUI_PRIVATE_KEY) throw new Error("Missing SUI_PRIVATE_KEY in .env");
@@ -30,23 +30,28 @@ async function initializeChannel() {
         arguments: [tx.pure.vector('u8', Array.from(pubKeyBytes))],
     });
 
-    const result = await client.signAndExecuteTransaction({ signer: sdkKeypair, transaction: tx });
-    const digest = result.$kind === 'Transaction' ? result.Transaction.digest : "";
-    
-    console.log(`Transaction submitted: ${digest}. Waiting 5 seconds for indexing...`);
-    await new Promise(res => setTimeout(res, 5000)); // Simple wait as requested
-
-    const txDetails = await client.getTransaction({
-        digest: digest,
-        options: { showObjectChanges: true, showEffects: true }
+    const result = await client.signAndExecuteTransaction({
+        transaction: tx,
+        signer: sdkKeypair,
     });
 
-    if (txDetails?.$kind !== 'Transaction' || !txDetails.Transaction.status?.success) {
-        throw new Error("Transaction failed or not found.");
+    console.log("result", result)
+
+    const transaction = await client.waitForTransaction({
+        digest: result.digest,
+        options: {
+            showEffects: true,
+            showObjectChanges: true,
+        },
+    });
+
+    console.log("transaction", transaction)
+
+    if (transaction.effects?.status.status !== 'success') {
+        throw new Error("Transaction execution failed on-chain.");
     }
 
-    // Find the object from changes
-    const createdObject = txDetails.Transaction.objectChanges?.find(
+    const createdObject = transaction.objectChanges?.find(
         (obj: any) => obj.type === 'created' && obj.objectType.includes('::settlement::StateChannel')
     );
 
@@ -54,12 +59,12 @@ async function initializeChannel() {
         console.log("✅ Channel Created! CHANNEL_ID:", createdObject.objectId);
         return createdObject.objectId;
     }
-    throw new Error("Could not find StateChannel ID in transaction effects.");
+    throw new Error("Could not find StateChannel ID in transaction changes.");
 }
 
 async function mockStateChannelSettlement(channelId: string) {
     console.log("\n--- Mocking Settlement ---");
-    const amount = 888n; // Lucky number bid
+    const amount = 888n;
     const bidder = sdkKeypair.getPublicKey().toSuiAddress();
     const message = new TextEncoder().encode(`bid:${amount}`);
 
@@ -78,10 +83,17 @@ async function mockStateChannelSettlement(channelId: string) {
         ],
     });
 
-    const result = await client.signAndExecuteTransaction({ signer: sdkKeypair, transaction: tx });
-    if (result.$kind === 'Transaction') {
-        console.log(`✅ Settlement Submitted! Digest: ${result.Transaction.digest}`);
-    }
+    const result = await client.signAndExecuteTransaction({
+        transaction: tx,
+        signer: sdkKeypair,
+    });
+
+    console.log(`✅ Settlement Submitted! Digest: ${result.digest}`);
+    
+    await client.waitForTransaction({
+        digest: result.digest,
+        options: { showEffects: true }
+    });
 }
 
 async function verifyOnChainState(channelId: string) {
@@ -104,7 +116,6 @@ async function main() {
             CHANNEL_ID = await initializeChannel();
         }
         await mockStateChannelSettlement(CHANNEL_ID!);
-        await new Promise(res => setTimeout(res, 5000)); // Wait for settlement to index
         await verifyOnChainState(CHANNEL_ID!);
     } catch (err) {
         console.error("Test Error:", err);
