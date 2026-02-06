@@ -8,6 +8,7 @@ import {
   createEIP712AuthMessageSigner,
   createSubmitAppStateMessage,
   RPCAppStateIntent,
+  type RPCData,
   RPCMethod,
   RPCProtocolVersion,
   type AuthChallengeResponse,
@@ -67,11 +68,13 @@ export type SubmitAppStateInput = {
   version: number;
   intent?: RPCAppStateIntent;
   sessionData?: string;
+  requireOperatorSignature?: boolean;
 };
 
 export type CloseAppSessionInput = {
   appSessionId: `0x${string}`;
   allocations: RPCAppSessionAllocation[];
+  requireOperatorSignature?: boolean;
 };
 
 export type LedgerBalances = {
@@ -435,7 +438,25 @@ export async function submitAppState(input: SubmitAppStateInput) {
   );
 
   log("Sending submit_app_state");
-  return session.client.sendMessage(message);
+  if (!input.requireOperatorSignature) {
+    return session.client.sendMessage(message);
+  }
+
+  const parsed = JSON.parse(message) as { req: RPCData; sig: string[] };
+  const response = await fetch("/api/operator-sign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload: parsed.req }),
+  });
+  if (!response.ok) {
+    throw new Error(`Operator signature failed (${response.status}).`);
+  }
+  const data = (await response.json()) as { signature?: string };
+  if (!data.signature) {
+    throw new Error("Operator signature missing.");
+  }
+  parsed.sig.push(data.signature);
+  return session.client.sendMessage(JSON.stringify(parsed));
 }
 
 export async function closeAppSession(input: CloseAppSessionInput) {
@@ -446,5 +467,23 @@ export async function closeAppSession(input: CloseAppSessionInput) {
     allocations: input.allocations,
   });
   log("Sending close_app_session");
-  return session.client.sendMessage(message);
+  if (!input.requireOperatorSignature) {
+    return session.client.sendMessage(message);
+  }
+
+  const parsed = JSON.parse(message) as { req: RPCData; sig: string[] };
+  const response = await fetch("/api/operator-sign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload: parsed.req }),
+  });
+  if (!response.ok) {
+    throw new Error(`Operator signature failed (${response.status}).`);
+  }
+  const data = (await response.json()) as { signature?: string };
+  if (!data.signature) {
+    throw new Error("Operator signature missing.");
+  }
+  parsed.sig.push(data.signature);
+  return session.client.sendMessage(JSON.stringify(parsed));
 }

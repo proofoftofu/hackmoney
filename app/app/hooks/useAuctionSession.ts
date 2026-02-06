@@ -33,6 +33,8 @@ const DEFAULT_TIMER = 15;
 const DEFAULT_BUDGET = 100;
 const BID_FEE = 1.0;
 const BID_INCREMENT = 0.01;
+const SESSION_WEIGHTS = [40, 40, 50] as const;
+const SESSION_QUORUM = 80;
 
 const formatTime = (seconds: number) =>
   `0:${seconds.toString().padStart(2, "0")}`;
@@ -70,6 +72,9 @@ export function useAuctionSession(
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const versionRef = useRef(0);
   const baseVersionRef = useRef(0);
+  const operatorAddress = process.env.NEXT_PUBLIC_OPERATOR_ADDRESS as
+    | `0x${string}`
+    | undefined;
 
   useEffect(() => {
     versionRef.current = version;
@@ -111,6 +116,9 @@ export function useAuctionSession(
     if (!walletAddress) {
       throw new Error("Connect a wallet before starting the auction session.");
     }
+    if (!operatorAddress) {
+      throw new Error("Operator address is missing.");
+    }
 
     const nextBudget =
       typeof inputBudget === "number" && Number.isFinite(inputBudget)
@@ -128,11 +136,14 @@ export function useAuctionSession(
         asset: "ytest.usd",
         amount: nextBudget.toFixed(2),
       },
+      { participant: operatorAddress, asset: "ytest.usd", amount: "0.00" },
     ];
 
     const response = await createAppSession({
-      participants: [sellerAddress, walletAddress],
+      participants: [sellerAddress, walletAddress, operatorAddress],
       allocations,
+      weights: [...SESSION_WEIGHTS],
+      quorum: SESSION_QUORUM,
       application: `YellowAuction`,
     });
 
@@ -165,6 +176,7 @@ export function useAuctionSession(
         asset: "ytest.usd",
         amount: Math.max(0, nextBudget - seedTotal).toFixed(2),
       },
+      { participant: operatorAddress, asset: "ytest.usd", amount: "0.00" },
     ];
 
     await submitAppState({
@@ -173,6 +185,7 @@ export function useAuctionSession(
       version: nextVersion,
       intent: RPCAppStateIntent.Operate,
       sessionData: JSON.stringify(seedSessionData),
+      requireOperatorSignature: true,
     });
 
     setVersion(nextVersion);
@@ -205,6 +218,7 @@ export function useAuctionSession(
     lastBidder,
     budget,
     submitAppState,
+    operatorAddress,
   ]);
 
   useEffect(() => {
@@ -222,7 +236,7 @@ export function useAuctionSession(
   }, [hasWallet, isConnected]);
 
   const placeBid = useCallback(async () => {
-    if (!sessionId || !walletAddress) return;
+    if (!sessionId || !walletAddress || !operatorAddress) return;
     console.log("[yellow] placeBid", { auctionId, sessionId, walletAddress });
 
     const bidAmount = BID_INCREMENT;
@@ -254,6 +268,7 @@ export function useAuctionSession(
         asset: "ytest.usd",
         amount: Math.max(0, budget - sellerAmount).toFixed(2),
       },
+      { participant: operatorAddress, asset: "ytest.usd", amount: "0.00" },
     ];
 
     await submitAppState({
@@ -262,6 +277,7 @@ export function useAuctionSession(
       version: nextVersion,
       intent: RPCAppStateIntent.Operate,
       sessionData: JSON.stringify(sessionData),
+      requireOperatorSignature: true,
     });
     console.log("[yellow] bid submitted", {
       auctionId,
@@ -286,7 +302,17 @@ export function useAuctionSession(
         ...prev,
       ].slice(0, 8);
     });
-  }, [sessionId, walletAddress, version, currentPrice, auctionId, sellerAddress, submitAppState, budget]);
+  }, [
+    sessionId,
+    walletAddress,
+    version,
+    currentPrice,
+    auctionId,
+    sellerAddress,
+    submitAppState,
+    budget,
+    operatorAddress,
+  ]);
 
   const handleSessionUpdate = useCallback(
     (payload: SessionUpdatePayload) => {
@@ -358,7 +384,7 @@ export function useAuctionSession(
   const formattedTime = useMemo(() => formatTime(timeLeft), [timeLeft]);
 
   const closeOrder = useCallback(async () => {
-    if (!sessionId || !walletAddress) return null;
+    if (!sessionId || !walletAddress || !operatorAddress) return null;
     const mockSignature = `0xmock-${Date.now().toString(16)}`;
     console.log("[yellow] closeOrder", { auctionId, sessionId, mockSignature });
 
@@ -370,11 +396,13 @@ export function useAuctionSession(
         asset: "ytest.usd",
         amount: Math.max(0, budget - sellerAmount).toFixed(2),
       },
+      { participant: operatorAddress, asset: "ytest.usd", amount: "0.00" },
     ];
 
     await closeAppSession({
       appSessionId: sessionId as `0x${string}`,
       allocations,
+      requireOperatorSignature: true,
     });
 
     return mockSignature;
@@ -387,6 +415,7 @@ export function useAuctionSession(
     totalFees,
     budget,
     closeAppSession,
+    operatorAddress,
   ]);
 
   return {
