@@ -98,7 +98,7 @@ export function useAuctionSession(
     const response = await createAppSession({
       participants: [sellerAddress, walletAddress],
       allocations,
-      application: `Auction:${auctionId}`,
+      application: `YellowAuction`,
     });
 
     setSessionId(response.appSessionId);

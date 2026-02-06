@@ -189,7 +189,7 @@ const authenticateWallet = async (
   const authParams = {
     address: config.address,
     session_key: sessionState.sessionAddress,
-    application: config.application ?? "Yellow Auction",
+    application: config.application ?? "YellowAuction",
     allowances: config.allowances ?? [
       {
         asset: "ytest.usd",

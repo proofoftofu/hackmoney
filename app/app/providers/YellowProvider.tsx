@@ -74,7 +74,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
         clearnodeUrl: CLEARNODE_URL,
         walletClient,
         address,
-        application: "Yellow Auction",
+        application: "YellowAuction",
         scope: "auction.app",
         onAuthRequest: () => {
           setAuthError(null);

@@ -11,7 +11,7 @@ const projectId =
   process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? "MISSING_PROJECT_ID";
 
 const config = getDefaultConfig({
-  appName: "Yellow Auction",
+  appName: "YellowAuction",
   projectId,
   chains: [sepolia],
   ssr: true,
