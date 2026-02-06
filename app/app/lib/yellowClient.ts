@@ -1,4 +1,6 @@
 import {
+  NitroliteClient,
+  WalletStateSigner,
   createAuthRequestMessage,
   createAuthVerifyMessageFromChallenge,
   createCreateChannelMessage,
@@ -9,6 +11,7 @@ import {
   createResizeChannelMessage,
 } from "@erc7824/nitrolite";
 import type { RPCAsset, RPCNetworkInfo } from "@erc7824/nitrolite";
+import { createPublicClient, http } from "viem";
 import type { WalletClient } from "viem";
 import { sepolia } from "viem/chains";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
@@ -46,6 +49,9 @@ type SessionState = {
 let activeSession: SessionState | null = null;
 
 const DEFAULT_TOKEN = "0xDB9F293e3898c9E5536A3be1b0C56c89d2b32DEb";
+
+const ALCHEMY_RPC_URL = process.env.ALCHEMY_RPC_URL;
+const FALLBACK_RPC_URL = 'https://1rpc.io/sepolia'; // Public fallback
 
 const ensureBrowser = () => {
   if (typeof window === "undefined") {
@@ -135,6 +141,18 @@ const resolveToken = (config: Config | undefined, chainId: number) => {
   const assets = config?.assets ?? [];
   const match = assets.find((asset) => asset.chain_id === chainId);
   return (match?.token ?? DEFAULT_TOKEN) as `0x${string}`;
+};
+
+const resolveNetwork = (config: Config | undefined, chainId: number) => {
+  const networks = config?.networks ?? [];
+  return networks.find((network: any) => (network.chain_id ?? network.chainId) === chainId);
+};
+
+const toBigInt = (value: unknown) => {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return BigInt(value);
+  if (typeof value === "string" && value !== "") return BigInt(value);
+  return 0n;
 };
 
 const ensureSession = () => {
@@ -253,15 +271,81 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
   console.log("DEBUG: Sending create_channel payload:", JSON.stringify(createChannel));
   ws.send(createChannel);
   const created = await waitForResponse(ws, "create_channel");
-  const channelId = created?.res?.[2]?.channel_id as `0x${string}` | undefined;
-  if (!channelId) {
-    throw new Error("Yellow did not return a channel id.");
+  const createParams = created?.res?.[2];
+  if (!createParams) {
+    throw new Error("Yellow did not return create_channel params.");
   }
 
-  sessionState.channelId = channelId;
-  log("Channel created:", channelId);
+  const rawChannelId =
+    (createParams.channel_id ?? createParams.channelId) as `0x${string}` | undefined;
+  const rawServerSignature =
+    (createParams.server_signature ?? createParams.serverSignature) as
+      | `0x${string}`
+      | undefined;
+  const rawState = createParams.state ?? {};
+  const rawChannel = createParams.channel ?? {};
+  const stateData = rawState.state_data ?? rawState.stateData;
+  const allocations = Array.isArray(rawState.allocations)
+    ? rawState.allocations
+    : [];
+
+  if (!rawChannelId || !rawServerSignature || !stateData) {
+    throw new Error("Yellow create_channel response missing required data.");
+  }
+
+  const network = resolveNetwork(sessionState.config, chainId);
+  const custody = network?.custody_address ?? network?.custodyAddress;
+  const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
+  if (!custody || !adjudicator) {
+    throw new Error("Missing custody/adjudicator addresses for selected chain.");
+  }
+
+  const publicClient = createPublicClient({
+    chain: sessionState.walletClient.chain ?? sepolia,
+    transport: http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
+  });
+
+  const challengeDuration = BigInt(
+    Math.max(3600, Number(rawChannel.challenge ?? rawChannel.challengeDuration ?? 0))
+  );
+
+  const nitroliteClient = new NitroliteClient({
+    publicClient,
+    walletClient: sessionState.walletClient,
+    stateSigner: new WalletStateSigner(sessionState.walletClient),
+    addresses: {
+      custody,
+      adjudicator,
+    },
+    chainId,
+    challengeDuration,
+  });
+
+  log("Submitting on-chain createChannel...");
+  const onChainResult = await nitroliteClient.createChannel({
+    channel: {
+      participants: rawChannel.participants ?? [],
+      adjudicator,
+      challenge: toBigInt(rawChannel.challenge),
+      nonce: toBigInt(rawChannel.nonce),
+    },
+    unsignedInitialState: {
+      intent: Number(rawState.intent ?? 0),
+      version: toBigInt(rawState.version),
+      data: stateData,
+      allocations: allocations.map((allocation: any) => ({
+        destination: allocation.destination,
+        token: allocation.token,
+        amount: toBigInt(allocation.amount),
+      })),
+    },
+    serverSignature: rawServerSignature,
+  });
+
+  sessionState.channelId = onChainResult.channelId as `0x${string}`;
+  log("Channel created on-chain:", sessionState.channelId, "tx:", onChainResult.txHash);
   activeSession = sessionState;
-  return channelId;
+  return sessionState.channelId;
 }
 
 export async function signSessionMessage(payload: string): Promise<string> {
