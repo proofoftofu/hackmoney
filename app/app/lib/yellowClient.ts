@@ -36,6 +36,8 @@ type SessionState = {
 };
 
 let activeSession: SessionState | null = null;
+let sessionPromise: Promise<SessionState> | null = null;
+let sessionKey: string | null = null;
 
 const DEFAULT_TOKEN = "0xDB9F293e3898c9E5536A3be1b0C56c89d2b32DEb";
 const DEFAULT_CHAIN_ID = 11155111; // Sepolia
@@ -78,7 +80,8 @@ const waitForOpen = (ws: WebSocket) =>
 const waitForResponse = (
   ws: WebSocket,
   expectedMethod: string | string[],
-  timeoutMs = 20000
+  timeoutMs = 20000,
+  debugTag?: string
 ) =>
   new Promise<any>((resolve, reject) => {
     const expected = Array.isArray(expectedMethod)
@@ -98,6 +101,9 @@ const waitForResponse = (
           return;
         }
         const method = message?.method ?? message?.res?.[1];
+        if (debugTag) {
+          log(`${debugTag} received`, method ?? "unknown");
+        }
         if (!expected.includes(method)) return;
         cleanup();
         resolve(message);
@@ -123,7 +129,7 @@ const fetchConfig = async (
   log("Requesting config...");
   const configMsg = await createGetConfigMessage(sessionSigner);
   ws.send(configMsg);
-  const response = await waitForResponse(ws, ["get_config", "config"]);
+  const response = await waitForResponse(ws, ["get_config", "config"], 20000, "config");
   log("Config received.");
   return (response?.res?.[2] ?? {}) as Config;
 };
@@ -168,6 +174,14 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   const existing = reuseSessionIfPossible(config);
   if (existing) return existing;
 
+  const nextKey = `${config.clearnodeUrl}:${config.address}:${config.walletClient.chain?.id ?? DEFAULT_CHAIN_ID}`;
+  if (sessionPromise && sessionKey === nextKey) {
+    return sessionPromise;
+  }
+
+  sessionKey = nextKey;
+
+  sessionPromise = (async () => {
   const nitrolite = await import("@erc7824/nitrolite");
   const {
     createAuthRequestMessage,
@@ -175,7 +189,7 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
     createECDSAMessageSigner,
     createEIP712AuthMessageSigner,
   } = nitrolite;
-  const viemAccounts = await import("viem/accounts");
+    const viemAccounts = await import("viem/accounts");
 
   const chainId = config.walletClient.chain?.id ?? DEFAULT_CHAIN_ID;
   log("Opening channel on chain:", chainId);
@@ -229,7 +243,7 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   log("Sending auth_request...");
   ws.send(authRequest);
 
-  const challenge = await waitForResponse(ws, "auth_challenge");
+  const challenge = await waitForResponse(ws, "auth_challenge", 20000, "auth");
   const challengeMessage = challenge?.res?.[2]?.challenge_message;
   if (!challengeMessage) {
     throw new Error("Missing auth challenge from Yellow.");
@@ -249,11 +263,23 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
 
   log("Sending auth_verify (EIP-712)...");
   ws.send(verifyMsg);
-  await waitForResponse(ws, "auth_verify");
+  await waitForResponse(ws, "auth_verify", 20000, "auth");
   log("Authenticated.");
 
   activeSession = sessionState;
-  return sessionState;
+    return sessionState;
+  })();
+
+  try {
+    const result = await sessionPromise;
+    return result;
+  } catch (error) {
+    sessionPromise = null;
+    sessionKey = null;
+    throw error;
+  } finally {
+    sessionPromise = null;
+  }
 };
 
 const detectOpenChannelId = async (sessionState: SessionState): Promise<`0x${string}` | null> => {
@@ -265,8 +291,18 @@ const detectOpenChannelId = async (sessionState: SessionState): Promise<`0x${str
   );
   log("Requesting ledger balances (channels)...");
   sessionState.ws.send(ledgerMsg);
-  const channelsResp = await waitForResponse(sessionState.ws, "channels");
-  const channels = channelsResp?.res?.[2]?.channels ?? [];
+  const channelsResp = await waitForResponse(
+    sessionState.ws,
+    ["channels", "get_ledger_balances"],
+    20000,
+    "ledger"
+  );
+  const payload = channelsResp?.res?.[2] ?? channelsResp?.params ?? {};
+  const channels =
+    payload?.channels ??
+    payload?.result?.channels ??
+    payload?.ledger?.channels ??
+    [];
   const openChannel = channels.find((channel: any) => channel.status === "open");
   return (openChannel?.channel_id as `0x${string}` | undefined) ?? null;
 };
@@ -321,7 +357,12 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
   });
   console.log("DEBUG: Sending create_channel payload:", JSON.stringify(createChannel));
   sessionState.ws.send(createChannel);
-  const created = await waitForResponse(sessionState.ws, "create_channel");
+  const created = await waitForResponse(
+    sessionState.ws,
+    "create_channel",
+    20000,
+    "create_channel"
+  );
   const createParams = created?.res?.[2];
   if (!createParams) {
     throw new Error("Yellow did not return create_channel params.");
@@ -420,7 +461,7 @@ export async function deposit(amount: number): Promise<void> {
   });
 
   session.ws.send(resizeMsg);
-  await waitForResponse(session.ws, "resize_channel");
+  await waitForResponse(session.ws, "resize_channel", 20000, "resize_channel");
   log("Deposit confirmed.");
 }
 
