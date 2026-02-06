@@ -262,9 +262,16 @@ const extractUnifiedBalance = (payload: any): bigint => {
     payload?.balances?.available,
     payload?.balances?.unified,
     payload?.balances?.balance,
+    payload?.result?.balances,
+    payload?.result?.balances?.available,
+    payload?.result?.balances?.unified,
+    payload?.result?.balances?.balance,
     payload?.ledger?.balances,
     payload?.ledger?.available,
     payload?.ledger?.balance,
+    payload?.result?.ledger?.balances,
+    payload?.result?.ledger?.available,
+    payload?.result?.ledger?.balance,
     payload?.available_balance,
     payload?.unified_balance,
     payload?.balance,
@@ -491,12 +498,16 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
     20000,
     "ledger"
   );
-  let payload = ledgerResp?.res?.[2] ?? ledgerResp?.params ?? {};
+  let payload = ledgerResp?.res?.[2] ?? ledgerResp?.result ?? ledgerResp?.params ?? {};
   let channels = extractChannelsFromPayload(payload);
   if (extractResponseMethod(ledgerResp) !== "channels" && channels.length === 0) {
-    ledgerResp = await waitForResponse(sessionState.ws, "channels", 8000, "ledger");
-    payload = ledgerResp?.res?.[2] ?? ledgerResp?.params ?? {};
-    channels = extractChannelsFromPayload(payload);
+    try {
+      ledgerResp = await waitForResponse(sessionState.ws, "channels", 8000, "ledger");
+      payload = ledgerResp?.res?.[2] ?? ledgerResp?.result ?? ledgerResp?.params ?? {};
+      channels = extractChannelsFromPayload(payload);
+    } catch (error) {
+      log("No channels payload returned after ledger request.", error);
+    }
   }
   const targetChannelId = sessionState.channelId;
   const openChannel =
@@ -504,9 +515,17 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
     channels.find((channel: any) => channel.status === "open") ??
     null;
   const channelId =
-    (openChannel?.channel_id as `0x${string}` | undefined) ?? null;
+    (openChannel?.channel_id as `0x${string}` | undefined) ??
+    (sessionState.channelId as `0x${string}` | undefined) ??
+    null;
   const channelAmount =
-    pickNumeric(openChannel?.amount ?? openChannel?.balance ?? openChannel?.total) ?? 0n;
+    pickNumeric(
+      openChannel?.amount ??
+        openChannel?.balance ??
+        openChannel?.total ??
+        openChannel?.balances ??
+        openChannel?.allocations
+    ) ?? 0n;
   const unified = extractUnifiedBalance(payload);
 
   log("Ledger balances fetched:", {
