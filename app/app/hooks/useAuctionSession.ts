@@ -33,6 +33,7 @@ const DEFAULT_TIMER = 15;
 const DEFAULT_BUDGET = 100;
 const BID_FEE = 1.0;
 const BID_INCREMENT = 0.01;
+const OPERATOR_FEE = 0.01;
 const SESSION_WEIGHTS = [40, 40, 50] as const;
 const SESSION_QUORUM = 80;
 
@@ -68,6 +69,7 @@ export function useAuctionSession(
   const [lastBidder, setLastBidder] = useState<string | undefined>(undefined);
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [totalFees, setTotalFees] = useState(0);
+  const [operatorFees, setOperatorFees] = useState(0);
   const [history, setHistory] = useState<SessionUpdatePayload[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const versionRef = useRef(0);
@@ -83,10 +85,12 @@ export function useAuctionSession(
   useEffect(() => {
     if (!sessionId) {
       setTotalFees(0);
+      setOperatorFees(0);
       return;
     }
     const bidsCount = Math.max(0, version - baseVersionRef.current);
     setTotalFees(Number((bidsCount * BID_FEE).toFixed(2)));
+    setOperatorFees(Number((bidsCount * OPERATOR_FEE).toFixed(2)));
   }, [sessionId, version]);
 
   useEffect(() => {
@@ -169,14 +173,15 @@ export function useAuctionSession(
     };
 
     const seedTotal = BID_FEE;
+    const seedOperatorTotal = OPERATOR_FEE;
     const seedAllocations: RPCAppSessionAllocation[] = [
       { participant: sellerAddress, asset: "ytest.usd", amount: seedTotal.toFixed(2) },
       {
         participant: walletAddress,
         asset: "ytest.usd",
-        amount: Math.max(0, nextBudget - seedTotal).toFixed(2),
+        amount: Math.max(0, nextBudget - seedTotal - seedOperatorTotal).toFixed(2),
       },
-      { participant: operatorAddress, asset: "ytest.usd", amount: "0.00" },
+      { participant: operatorAddress, asset: "ytest.usd", amount: seedOperatorTotal.toFixed(2) },
     ];
 
     await submitAppState({
@@ -230,6 +235,7 @@ export function useAuctionSession(
       setLastBidder(undefined);
       setBudget(DEFAULT_BUDGET);
       setTotalFees(0);
+      setOperatorFees(0);
       baseVersionRef.current = 0;
       setHistory([]);
     }
@@ -245,8 +251,10 @@ export function useAuctionSession(
 
     const nextBidCount = Math.max(1, version + 1 - baseVersionRef.current);
     const nextTotalFees = Number((nextBidCount * BID_FEE).toFixed(2));
+    const nextOperatorFees = Number((nextBidCount * OPERATOR_FEE).toFixed(2));
     const sellerAmount = Number(nextTotalFees.toFixed(2));
-    if (sellerAmount > budget) return;
+    const operatorAmount = Number(nextOperatorFees.toFixed(2));
+    if (sellerAmount + operatorAmount > budget) return;
 
     const nextState: AuctionSessionState = {
       currentPrice: nextPrice,
@@ -266,9 +274,9 @@ export function useAuctionSession(
       {
         participant: walletAddress,
         asset: "ytest.usd",
-        amount: Math.max(0, budget - sellerAmount).toFixed(2),
+        amount: Math.max(0, budget - sellerAmount - operatorAmount).toFixed(2),
       },
-      { participant: operatorAddress, asset: "ytest.usd", amount: "0.00" },
+      { participant: operatorAddress, asset: "ytest.usd", amount: operatorAmount.toFixed(2) },
     ];
 
     await submitAppState({
@@ -292,6 +300,7 @@ export function useAuctionSession(
     setTimeLeft(DEFAULT_TIMER);
     setLastBidder(walletAddress);
     setTotalFees(nextTotalFees);
+    setOperatorFees(nextOperatorFees);
     versionRef.current = nextVersion;
     setHistory((prev) => {
       if (prev.some((entry) => entry.sessionId === sessionId && entry.version === nextVersion)) {
@@ -329,6 +338,15 @@ export function useAuctionSession(
           : Number(
               (Math.max(0, payload.version - baseVersionRef.current) * BID_FEE).toFixed(2)
             );
+      const nextOperatorFee =
+        typeof nextState.totalFees === "number"
+          ? Number(
+              ((nextState.bidCount ?? Math.max(0, payload.version - baseVersionRef.current)) *
+                OPERATOR_FEE).toFixed(2)
+            )
+          : Number(
+              (Math.max(0, payload.version - baseVersionRef.current) * OPERATOR_FEE).toFixed(2)
+            );
       const nextPrice =
         typeof nextState.currentPrice === "number"
           ? nextState.currentPrice
@@ -339,6 +357,7 @@ export function useAuctionSession(
       setCurrentPrice(nextPrice);
       setLastBidder(nextState.lastBidder);
       setTotalFees(nextFees);
+      setOperatorFees(nextOperatorFee);
       setVersion(payload.version);
       versionRef.current = payload.version;
       setTimeLeft(DEFAULT_TIMER);
@@ -389,14 +408,15 @@ export function useAuctionSession(
     console.log("[yellow] closeOrder", { auctionId, sessionId, mockSignature });
 
     const sellerAmount = Number((totalFees + currentPrice).toFixed(2));
+    const operatorAmount = Number(operatorFees.toFixed(2));
     const allocations: RPCAppSessionAllocation[] = [
       { participant: sellerAddress, asset: "ytest.usd", amount: sellerAmount.toFixed(2) },
       {
         participant: walletAddress,
         asset: "ytest.usd",
-        amount: Math.max(0, budget - sellerAmount).toFixed(2),
+        amount: Math.max(0, budget - sellerAmount - operatorAmount).toFixed(2),
       },
-      { participant: operatorAddress, asset: "ytest.usd", amount: "0.00" },
+      { participant: operatorAddress, asset: "ytest.usd", amount: operatorAmount.toFixed(2) },
     ];
 
     await closeAppSession({
@@ -413,6 +433,7 @@ export function useAuctionSession(
     sellerAddress,
     currentPrice,
     totalFees,
+    operatorFees,
     budget,
     closeAppSession,
     operatorAddress,
