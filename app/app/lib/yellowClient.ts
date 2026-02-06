@@ -807,8 +807,11 @@ export async function deposit(amount: number): Promise<void> {
   const session = ensureSession();
   const { createResizeChannelMessage } = await import("@erc7824/nitrolite");
 
-  const rounded = Math.max(0, Math.round(amount * 100));
-  if (rounded === 0) return;
+  if (!session.channelId) {
+    throw new Error("No active channel to deposit into. Call openChannel first.");
+  }
+
+  const rounded = amount;
 
   const connectedWallet =
     (session.walletClient.account?.address as `0x${string}` | undefined) ??
@@ -822,8 +825,85 @@ export async function deposit(amount: number): Promise<void> {
   });
 
   session.ws.send(resizeMsg);
-  await waitForResponse(session.ws, "resize_channel", 20000, "resize_channel");
-  log("Deposit confirmed.");
+  const resizeResponse = await waitForResponse(
+    session.ws,
+    "resize_channel",
+    20000,
+    "resize_channel"
+  );
+
+  const payload =
+    resizeResponse?.res?.[2] ?? resizeResponse?.result ?? resizeResponse?.params ?? {};
+  const channelId =
+    (payload.channel_id ?? payload.channelId ?? session.channelId) as `0x${string}`;
+  const serverSignature =
+    (payload.server_signature ?? payload.serverSignature) as `0x${string}` | undefined;
+  const state = payload.state ?? {};
+
+  if (!serverSignature || !channelId) {
+    throw new Error("Yellow resize_channel response missing required data.");
+  }
+
+  const allocations = Array.isArray(state.allocations) ? state.allocations : [];
+
+  const { NitroliteClient, WalletStateSigner } = await import("@erc7824/nitrolite");
+  const viem = await import("viem");
+  const viemChains = await import("viem/chains");
+
+  const network = resolveNetwork(session.config, session.chainId);
+  const custody = network?.custody_address ?? network?.custodyAddress;
+  const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
+  if (!custody || !adjudicator) {
+    throw new Error("Missing custody/adjudicator addresses for selected chain.");
+  }
+
+  const publicClient = viem.createPublicClient({
+    chain: session.walletClient.chain ?? viemChains.sepolia,
+    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
+  });
+
+  const nitroliteClient = new NitroliteClient({
+    publicClient,
+    walletClient: session.walletClient,
+    stateSigner: new WalletStateSigner(session.walletClient),
+    addresses: {
+      custody,
+      adjudicator,
+    },
+    chainId: session.chainId,
+    challengeDuration: 3600n,
+  });
+
+  const resizeState = {
+    intent: Number(state.intent ?? 0),
+    version: toBigInt(state.version),
+    data: state.state_data ?? state.data ?? "0x",
+    allocations: allocations.map((allocation: any) => ({
+      destination: allocation.destination,
+      token: allocation.token,
+      amount: toBigInt(allocation.amount),
+    })),
+    channelId,
+    serverSignature,
+  };
+
+  let proofStates: any[] = [];
+  try {
+    const onChainData = await nitroliteClient.getChannelData(channelId);
+    if (onChainData?.lastValidState) {
+      proofStates = [onChainData.lastValidState];
+    }
+  } catch (error) {
+    log("Unable to load channel data for proof states:", error);
+  }
+
+  log("Submitting resize on-chain...");
+  const { txHash } = await nitroliteClient.resizeChannel({
+    resizeState,
+    proofStates,
+  });
+
+  log("Deposit confirmed on-chain:", txHash);
 }
 
 export async function withdraw(amount: number): Promise<void> {
