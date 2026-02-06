@@ -86,7 +86,7 @@ export default function Home() {
 
               return (
                 <div className={ready ? "" : "pointer-events-none opacity-0"}>
-                  {!connected ? (
+                  {!connected && (
                     <button
                       type="button"
                       onClick={openConnectModal}
@@ -94,7 +94,8 @@ export default function Home() {
                     >
                       Connect Wallet
                     </button>
-                  ) : !isConnected ? (
+                  )}
+                  {connected && !isConnected && (
                     <button
                       type="button"
                       onClick={async () => {
@@ -106,7 +107,18 @@ export default function Home() {
                     >
                       {isConnecting ? "Signing In..." : "Sign In"}
                     </button>
-                  ) : (
+                  )}
+                  {connected && isConnected && needsFaucet && (
+                    <button
+                      type="button"
+                      onClick={requestFaucet}
+                      disabled={isFaucetLoading}
+                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
+                    >
+                      {isFaucetLoading ? "Requesting USDC..." : "Request Test USDC"}
+                    </button>
+                  )}
+                  {connected && isConnected && !needsFaucet && (
                     <Link
                       href="/auction/aurora"
                       className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
@@ -119,27 +131,21 @@ export default function Home() {
               );
             }}
           </ConnectButton.Custom>
-          {isConnected && (
-            <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-300">
-              <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                {isBalanceLoading
-                  ? "Loading balance..."
-                  : unifiedBalance === null
-                  ? "Balance unavailable"
-                  : `Unified balance: ${unifiedBalance.toFixed(2)} USDC`}
-              </span>
-              {needsFaucet && (
-                <button
-                  type="button"
-                  onClick={requestFaucet}
-                  disabled={isFaucetLoading}
-                  className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-sm font-semibold text-amber-200 transition hover:border-amber-400 hover:text-amber-100 disabled:cursor-not-allowed disabled:border-amber-400/20 disabled:text-amber-200/60"
-                >
-                  {isFaucetLoading ? "Requesting USDC..." : "Request Test USDC"}
-                </button>
-              )}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-300">
+            <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2">
+              {!hasWallet
+                ? "Connect wallet to continue."
+                : !isConnected
+                ? "Sign in to continue."
+                : needsFaucet
+                ? "You need test USDC from the faucet to enter."
+                : isBalanceLoading
+                ? "Loading unified balance..."
+                : unifiedBalance === null
+                ? "Balance unavailable."
+                : `Unified balance: ${unifiedBalance.toFixed(2)} USDC`}
+            </span>
+          </div>
         </div>
         {balanceError && (
           <p className="mt-3 text-sm text-rose-300">{balanceError}</p>
