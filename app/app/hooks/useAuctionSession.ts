@@ -20,6 +20,8 @@ type AuctionSessionState = {
   currentPrice: number;
   timeLeft: number;
   lastBidder?: string;
+  bidCount: number;
+  totalFees: number;
 };
 
 type SessionData = {
@@ -146,6 +148,8 @@ export function useAuctionSession(
       currentPrice: initialPrice,
       timeLeft: DEFAULT_TIMER,
       lastBidder: walletAddress,
+      bidCount: 1,
+      totalFees: BID_FEE,
     };
 
     const seedSessionData: SessionData = {
@@ -153,7 +157,7 @@ export function useAuctionSession(
       state: seedState,
     };
 
-    const seedTotal = initialPrice + BID_FEE;
+    const seedTotal = BID_FEE;
     const seedAllocations: RPCAppSessionAllocation[] = [
       { participant: sellerAddress, asset: "ytest.usd", amount: seedTotal.toFixed(2) },
       {
@@ -225,16 +229,17 @@ export function useAuctionSession(
     const nextVersion = version + 1;
     const nextPrice = Number((currentPrice + bidAmount).toFixed(2));
 
-    const nextTotalFees = Number(
-      (Math.max(0, nextVersion - baseVersionRef.current) * BID_FEE).toFixed(2)
-    );
-    const sellerAmount = Number((nextPrice + nextTotalFees).toFixed(2));
+    const nextBidCount = Math.max(1, version + 1 - baseVersionRef.current);
+    const nextTotalFees = Number((nextBidCount * BID_FEE).toFixed(2));
+    const sellerAmount = Number(nextTotalFees.toFixed(2));
     if (sellerAmount > budget) return;
 
     const nextState: AuctionSessionState = {
       currentPrice: nextPrice,
       timeLeft: DEFAULT_TIMER,
       lastBidder: walletAddress,
+      bidCount: nextBidCount,
+      totalFees: nextTotalFees,
     };
 
     const sessionData: SessionData = {
@@ -270,6 +275,7 @@ export function useAuctionSession(
     setCurrentPrice(nextPrice);
     setTimeLeft(DEFAULT_TIMER);
     setLastBidder(walletAddress);
+    setTotalFees(nextTotalFees);
     versionRef.current = nextVersion;
     setHistory((prev) => {
       if (prev.some((entry) => entry.sessionId === sessionId && entry.version === nextVersion)) {
@@ -291,8 +297,22 @@ export function useAuctionSession(
 
       const nextState = payload.state;
 
-      setCurrentPrice(nextState.currentPrice);
+      const nextFees =
+        typeof nextState.totalFees === "number"
+          ? nextState.totalFees
+          : Number(
+              (Math.max(0, payload.version - baseVersionRef.current) * BID_FEE).toFixed(2)
+            );
+      const nextPrice =
+        typeof nextState.currentPrice === "number"
+          ? nextState.currentPrice
+          : Number(
+              (Math.max(0, payload.version - baseVersionRef.current) * BID_INCREMENT + 0.05).toFixed(2)
+            );
+
+      setCurrentPrice(nextPrice);
       setLastBidder(nextState.lastBidder);
+      setTotalFees(nextFees);
       setVersion(payload.version);
       versionRef.current = payload.version;
       setTimeLeft(DEFAULT_TIMER);
