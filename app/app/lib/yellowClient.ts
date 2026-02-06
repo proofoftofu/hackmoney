@@ -80,8 +80,6 @@ export type LedgerBalances = {
 
 let activeSession: SessionState | null = null;
 let sessionPromise: Promise<SessionState> | null = null;
-let sessionKey: string | null = null;
-const SESSION_STORAGE_PREFIX = "yellow.session-key.v2";
 
 const listeners = new Set<(message: RPCResponse) => void>();
 let clientUnsubscribe: (() => void) | null = null;
@@ -94,52 +92,6 @@ const ensureBrowser = () => {
   if (typeof window === "undefined") {
     throw new Error("Yellow client can only run in the browser.");
   }
-};
-
-const getSessionStorageKey = (
-  clearnodeUrl: string,
-  walletAddress: `0x${string}`
-) => `${SESSION_STORAGE_PREFIX}:${encodeURIComponent(clearnodeUrl)}:${walletAddress}`;
-
-const loadStoredSessionKey = (
-  clearnodeUrl: string,
-  walletAddress: `0x${string}`
-): `0x${string}` | null => {
-  ensureBrowser();
-  const key = getSessionStorageKey(clearnodeUrl, walletAddress);
-  const raw = window.localStorage.getItem(key);
-  if (!raw) return null;
-  try {
-    if (raw.trim().startsWith("{")) {
-      const parsed = JSON.parse(raw) as { sessionPrivateKey?: `0x${string}` };
-      return parsed.sessionPrivateKey ?? null;
-    }
-    return raw as `0x${string}`;
-  } catch (error) {
-    log("Failed to parse stored session key", error);
-    return null;
-  }
-};
-
-const persistSessionKey = (
-  clearnodeUrl: string,
-  walletAddress: `0x${string}`,
-  sessionPrivateKey: `0x${string}`
-) => {
-  ensureBrowser();
-  const key = getSessionStorageKey(clearnodeUrl, walletAddress);
-  window.localStorage.setItem(key, sessionPrivateKey);
-  log("Session key persisted", { clearnodeUrl, walletAddress });
-};
-
-const clearStoredSessionKey = (
-  clearnodeUrl: string,
-  walletAddress: `0x${string}`
-) => {
-  ensureBrowser();
-  const key = getSessionStorageKey(clearnodeUrl, walletAddress);
-  window.localStorage.removeItem(key);
-  log("Session key cleared", { clearnodeUrl, walletAddress });
 };
 
 const extractMethod = (message: RPCResponse) =>
@@ -263,20 +215,12 @@ const connectSession = async (
   const existing = reuseSessionIfPossible(config);
   if (existing) return existing;
 
-  const nextKey = `${config.clearnodeUrl}:${config.address}`;
-  if (sessionPromise && sessionKey === nextKey) {
+  if (sessionPromise) {
     return sessionPromise;
   }
 
-  sessionKey = nextKey;
-
   sessionPromise = (async () => {
-    const storedSessionKey = loadStoredSessionKey(
-      config.clearnodeUrl,
-      config.address
-    );
-
-    const sessionPrivateKey = storedSessionKey ?? generatePrivateKey();
+    const sessionPrivateKey = generatePrivateKey();
     const sessionAccount = privateKeyToAccount(sessionPrivateKey);
     const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
 
@@ -298,12 +242,6 @@ const connectSession = async (
 
     await authenticateWallet(sessionState, config);
 
-    persistSessionKey(
-      sessionState.clearnodeUrl,
-      sessionState.walletAddress,
-      sessionState.sessionPrivateKey
-    );
-
     activeSession = sessionState;
     log("Session ready", {
       walletAddress: sessionState.walletAddress,
@@ -316,7 +254,6 @@ const connectSession = async (
     return await sessionPromise;
   } catch (error) {
     sessionPromise = null;
-    sessionKey = null;
     if (error instanceof Error) {
       config.onAuthError?.(error);
     } else {
@@ -403,10 +340,8 @@ export async function disconnectYellowSession() {
       clientUnsubscribe();
       clientUnsubscribe = null;
     }
-    clearStoredSessionKey(activeSession.clearnodeUrl, activeSession.walletAddress);
     listeners.clear();
     activeSession = null;
-    sessionKey = null;
     sessionPromise = null;
     log("Session disconnected");
   }
