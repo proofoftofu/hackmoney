@@ -1,12 +1,7 @@
-"use client";
-
 import Link from "next/link";
-import { ArrowUpRight, Timer } from "lucide-react";
-import { useAuction } from "./hooks/useAuction";
+import { ArrowUpRight } from "lucide-react";
 
 export default function Home() {
-  const { formattedTime } = useAuction({ startingTime: 15 });
-
   return (
     <div className="space-y-10">
       <section className="rounded-[32px] border border-white/10 bg-slate-950/80 p-8 shadow-[0_30px_80px_-45px_rgba(250,204,21,0.6)]">
@@ -29,10 +24,36 @@ export default function Home() {
             Enter Auction
             <ArrowUpRight className="h-4 w-4" />
           </Link>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-300">
-            <Timer className="h-4 w-4 text-amber-300" />
-            {formattedTime}
-          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-3">
+        <div className="rounded-3xl border border-white/10 bg-black/40 p-6">
+          <p className="text-xs uppercase tracking-[0.2em] text-amber-200">
+            How It Works
+          </p>
+          <p className="mt-3 text-base text-zinc-300">
+            Each bid adds $0.01 and resets the countdown. When the timer reaches
+            zero, the last bidder wins the product.
+          </p>
+        </div>
+        <div className="rounded-3xl border border-white/10 bg-black/40 p-6">
+          <p className="text-xs uppercase tracking-[0.2em] text-amber-200">
+            Penny Auction Benefits
+          </p>
+          <p className="mt-3 text-base text-zinc-300">
+            Low-cost entry, fast-paced bidding, and the chance to win premium
+            items for a fraction of retail.
+          </p>
+        </div>
+        <div className="rounded-3xl border border-white/10 bg-black/40 p-6">
+          <p className="text-xs uppercase tracking-[0.2em] text-amber-200">
+            Why Yellow Network
+          </p>
+          <p className="mt-3 text-base text-zinc-300">
+            Instant and secure by Yellow Network state channels and app sessions,
+            keeping bids signed, verified, and confirmed in real time.
+          </p>
         </div>
       </section>
     </div>
