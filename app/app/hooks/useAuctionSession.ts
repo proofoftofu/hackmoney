@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getActiveSession } from "../lib/yellowClient";
 import { useYellow } from "./useYellow";
 
 export interface AppAllocation {
@@ -40,7 +41,7 @@ const formatTime = (seconds: number) => `0:${seconds.toString().padStart(2, "0")
 const mockWalletAddress = "0xA11c...9E2b";
 
 export function useAuctionSession(auctionId: string) {
-  const { ws, unifiedBalance, deposit, messageSigner, openChannel } = useYellow();
+  const { ws, unifiedBalance, deposit, messageSigner, openChannel, hasWallet } = useYellow();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [currentPrice, setCurrentPrice] = useState(0.05);
@@ -69,7 +70,8 @@ export function useAuctionSession(auctionId: string) {
     const nextSessionId = `${auctionId}-${channelId}`;
     setSessionId(nextSessionId);
 
-    if (ws?.readyState === WebSocket.OPEN) {
+    const activeWs = getActiveSession()?.ws ?? ws;
+    if (activeWs?.readyState === WebSocket.OPEN) {
       const payload = {
         method: "open_session",
         params: {
@@ -78,16 +80,18 @@ export function useAuctionSession(auctionId: string) {
         },
       };
       const signature = await messageSigner(JSON.stringify(payload));
-      ws.send(JSON.stringify({ ...payload, signature }));
+      activeWs.send(JSON.stringify({ ...payload, signature }));
       // TODO: Sync with experiments/yellow/index.ts open session message format
     }
   }, [auctionId, openChannel, ws, messageSigner]);
 
   useEffect(() => {
-    if (!sessionId && ws?.readyState === WebSocket.OPEN) {
-      joinAuction();
+    if (!sessionId && hasWallet) {
+      joinAuction().catch((error) => {
+        console.warn("Failed to join auction session", error);
+      });
     }
-  }, [joinAuction, sessionId, ws?.readyState]);
+  }, [joinAuction, sessionId, hasWallet]);
 
   const placeBid = useCallback(async () => {
     const bidAmount = 0.01;

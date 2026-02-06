@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useEffect, useMemo, useState } from 
 import { useAccount, useWalletClient } from "wagmi";
 import {
   deposit as sdkDeposit,
+  getActiveSession,
   openChannel as sdkOpenChannel,
   signSessionMessage,
   withdraw as sdkWithdraw,
@@ -12,6 +13,7 @@ import {
 type YellowContextValue = {
   ws: WebSocket | null;
   isConnected: boolean;
+  hasWallet: boolean;
   unifiedBalance: number;
   setUnifiedBalance: (next: number) => void;
   messageSigner: (payload: string) => Promise<string>;
@@ -34,31 +36,39 @@ export function YellowProvider({ children }: YellowProviderProps) {
   const [unifiedBalance, setUnifiedBalance] = useState(18.4);
   const { address } = useAccount();
   const { data: walletClient } = useWalletClient();
+  const hasWallet = Boolean(walletClient && address);
 
   useEffect(() => {
-    const socket = new WebSocket(CLEARNODE_URL);
+    if (!ws) return;
 
-    console.log("[YellowProvider] Connecting WebSocket", CLEARNODE_URL);
-    socket.addEventListener("open", () => {
+    console.log("[YellowProvider] Attaching WebSocket listeners");
+    const handleOpen = () => {
       console.log("[YellowProvider] WebSocket connected");
       setIsConnected(true);
-    });
-    socket.addEventListener("close", () => {
+    };
+    const handleClose = () => {
       console.log("[YellowProvider] WebSocket closed");
       setIsConnected(false);
-    });
-    socket.addEventListener("error", (event) => {
+    };
+    const handleError = (event: Event) => {
       console.warn("[YellowProvider] WebSocket error", event);
       setIsConnected(false);
-    });
+    };
 
-    setWs(socket);
+    if (ws.readyState === WebSocket.OPEN) {
+      setIsConnected(true);
+    }
+
+    ws.addEventListener("open", handleOpen);
+    ws.addEventListener("close", handleClose);
+    ws.addEventListener("error", handleError);
 
     return () => {
-      console.log("[YellowProvider] Closing WebSocket");
-      socket.close();
+      ws.removeEventListener("open", handleOpen);
+      ws.removeEventListener("close", handleClose);
+      ws.removeEventListener("error", handleError);
     };
-  }, []);
+  }, [ws]);
 
   const messageSigner = useCallback(async (payload: string) => {
     return signSessionMessage(payload);
@@ -69,13 +79,18 @@ export function YellowProvider({ children }: YellowProviderProps) {
       throw new Error("Connect a wallet before opening a channel.");
     }
     console.log("[YellowProvider] Opening channel for", address);
-    return sdkOpenChannel({
+    const channelId = await sdkOpenChannel({
       clearnodeUrl: CLEARNODE_URL,
       walletClient,
       address,
       application: "Yellow Auction",
       scope: "auction.app",
     });
+    const session = getActiveSession();
+    if (session?.ws) {
+      setWs(session.ws);
+    }
+    return channelId;
   }, [walletClient, address]);
 
   const deposit = useCallback(async (amount: number) => {
@@ -92,6 +107,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
     () => ({
       ws,
       isConnected,
+      hasWallet,
       unifiedBalance,
       setUnifiedBalance,
       messageSigner,
@@ -102,6 +118,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
     [
       ws,
       isConnected,
+      hasWallet,
       unifiedBalance,
       messageSigner,
       openChannel,

@@ -1,20 +1,9 @@
-import {
-  NitroliteClient,
-  WalletStateSigner,
-  createAuthRequestMessage,
-  createAuthVerifyMessageFromChallenge,
-  createCreateChannelMessage,
+import type {
+  RPCAsset,
+  RPCNetworkInfo,
   createECDSAMessageSigner,
-  createEIP712AuthMessageSigner,
-  createGetConfigMessage,
-  createGetLedgerBalancesMessage,
-  createResizeChannelMessage,
 } from "@erc7824/nitrolite";
-import type { RPCAsset, RPCNetworkInfo } from "@erc7824/nitrolite";
-import { createPublicClient, http } from "viem";
 import type { WalletClient } from "viem";
-import { sepolia } from "viem/chains";
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 export type YellowConnectionConfig = {
   clearnodeUrl: string;
@@ -49,9 +38,10 @@ type SessionState = {
 let activeSession: SessionState | null = null;
 
 const DEFAULT_TOKEN = "0xDB9F293e3898c9E5536A3be1b0C56c89d2b32DEb";
+const DEFAULT_CHAIN_ID = 11155111; // Sepolia
 
 const ALCHEMY_RPC_URL = process.env.ALCHEMY_RPC_URL;
-const FALLBACK_RPC_URL = 'https://1rpc.io/sepolia'; // Public fallback
+const FALLBACK_RPC_URL = "https://1rpc.io/sepolia"; // Public fallback
 
 const ensureBrowser = () => {
   if (typeof window === "undefined") {
@@ -129,6 +119,7 @@ const fetchConfig = async (
   ws: WebSocket,
   sessionSigner: ReturnType<typeof createECDSAMessageSigner>
 ) => {
+  const { createGetConfigMessage } = await import("@erc7824/nitrolite");
   log("Requesting config...");
   const configMsg = await createGetConfigMessage(sessionSigner);
   ws.send(configMsg);
@@ -162,6 +153,10 @@ const ensureSession = () => {
   return activeSession;
 };
 
+export function getActiveSession() {
+  return activeSession;
+}
+
 export async function openChannel(config: YellowConnectionConfig): Promise<string> {
   ensureBrowser();
 
@@ -170,11 +165,27 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
     return activeSession.channelId;
   }
 
-  const chainId = config.walletClient.chain?.id ?? sepolia.id;
+  const nitrolite = await import("@erc7824/nitrolite");
+  const {
+    createAuthRequestMessage,
+    createAuthVerifyMessageFromChallenge,
+    createCreateChannelMessage,
+    createECDSAMessageSigner,
+    createEIP712AuthMessageSigner,
+    createGetConfigMessage,
+    createGetLedgerBalancesMessage,
+    NitroliteClient,
+    WalletStateSigner,
+  } = nitrolite;
+  const viem = await import("viem");
+  const viemAccounts = await import("viem/accounts");
+  const viemChains = await import("viem/chains");
+
+  const chainId = config.walletClient.chain?.id ?? DEFAULT_CHAIN_ID;
   log("Opening channel on chain:", chainId);
 
-  const sessionPrivateKey = generatePrivateKey();
-  const sessionAccount = privateKeyToAccount(sessionPrivateKey);
+  const sessionPrivateKey = viemAccounts.generatePrivateKey();
+  const sessionAccount = viemAccounts.privateKeyToAccount(sessionPrivateKey);
   const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
   log("Generated session key:", sessionAccount.address);
 
@@ -300,9 +311,9 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
     throw new Error("Missing custody/adjudicator addresses for selected chain.");
   }
 
-  const publicClient = createPublicClient({
-    chain: sessionState.walletClient.chain ?? sepolia,
-    transport: http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
+  const publicClient = viem.createPublicClient({
+    chain: sessionState.walletClient.chain ?? viemChains.sepolia,
+    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
   });
 
   const challengeDuration = BigInt(
@@ -356,6 +367,7 @@ export async function signSessionMessage(payload: string): Promise<string> {
 
 export async function deposit(amount: number): Promise<void> {
   const session = ensureSession();
+  const { createResizeChannelMessage } = await import("@erc7824/nitrolite");
 
   const rounded = Math.max(0, Math.round(amount * 100));
   if (rounded === 0) return;
