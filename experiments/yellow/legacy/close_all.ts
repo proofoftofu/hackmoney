@@ -46,9 +46,8 @@ async function main() {
 
     const account = privateKeyToAccount(PRIVATE_KEY);
 
-    const ALCHEMY_RPC_URL = process.env.ALCHEMY_RPC_URL;
     const FALLBACK_RPC_URL = 'https://1rpc.io/sepolia'; // Public fallback
-    const RPC_URL = ALCHEMY_RPC_URL || FALLBACK_RPC_URL;
+    const RPC_URL = FALLBACK_RPC_URL;
     const publicClient = createPublicClient({
         chain: sepolia,
         transport: http(RPC_URL),

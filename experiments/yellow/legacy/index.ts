@@ -53,12 +53,11 @@ if (!PRIVATE_KEY) {
 const account = privateKeyToAccount(PRIVATE_KEY);
 
 // Create viem clients
-const ALCHEMY_RPC_URL = process.env.ALCHEMY_RPC_URL;
 const FALLBACK_RPC_URL = 'https://1rpc.io/sepolia'; // Public fallback
 
 const publicClient = createPublicClient({
     chain: sepolia,
-    transport: http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
+    transport: http(FALLBACK_RPC_URL),
 });
 
 const walletClient = createWalletClient({
