@@ -57,12 +57,20 @@ export function useAuctionSession(
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [currentPrice, setCurrentPrice] = useState(0.05);
-  const [timeLeft, setTimeLeft] = useState(DEFAULT_TIMER);
+  const [timeLeft, setTimeLeft] = useState(0);
   const [lastBidder, setLastBidder] = useState<string | undefined>(undefined);
   const [history, setHistory] = useState<SessionUpdatePayload[]>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    if (!sessionId) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
+
     if (intervalRef.current) return;
 
     intervalRef.current = setInterval(() => {
@@ -75,7 +83,7 @@ export function useAuctionSession(
         intervalRef.current = null;
       }
     };
-  }, []);
+  }, [sessionId]);
 
   const createSession = useCallback(async () => {
     if (!walletAddress) {
@@ -95,6 +103,7 @@ export function useAuctionSession(
 
     setSessionId(response.appSessionId);
     setVersion(response.version ?? 0);
+    setTimeLeft(DEFAULT_TIMER);
 
     const seedState: AuctionSessionState = {
       currentPrice,
@@ -114,12 +123,15 @@ export function useAuctionSession(
   }, [walletAddress, sellerAddress, auctionId, createAppSession, currentPrice, lastBidder]);
 
   useEffect(() => {
-    if (!hasWallet || !isConnected || sessionId) return;
-    console.log("[yellow] auto create auction session", { auctionId });
-    createSession().catch((error) => {
-      console.warn("Failed to create auction session", error);
-    });
-  }, [createSession, hasWallet, isConnected, sessionId]);
+    if (hasWallet && !isConnected) {
+      setSessionId(null);
+      setVersion(0);
+      setTimeLeft(0);
+      setCurrentPrice(0.05);
+      setLastBidder(undefined);
+      setHistory([]);
+    }
+  }, [hasWallet, isConnected]);
 
   const placeBid = useCallback(async () => {
     if (!sessionId || !walletAddress) return;
