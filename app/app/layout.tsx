@@ -24,12 +24,6 @@ export const metadata: Metadata = {
     "Penny Auction MVP with state channel bidding and real-time countdowns.",
 };
 
-const navItems = [
-  { href: "/", label: "Dashboard" },
-  { href: "/auction/aurora", label: "Auction" },
-  { href: "/create", label: "Create" },
-];
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -48,7 +42,7 @@ export default function RootLayout({
 
               <header className="relative z-10 border-b border-white/10 bg-slate-950/70 backdrop-blur">
                 <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
-                  <div className="flex items-center gap-3">
+                  <Link href="/" className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 via-amber-300 to-yellow-200 text-slate-950 shadow-lg shadow-amber-500/30">
                       Y
                     </div>
@@ -58,18 +52,7 @@ export default function RootLayout({
                       </p>
                       <p className="text-xl font-semibold text-white">Penny Auction</p>
                     </div>
-                  </div>
-                  <nav className="hidden items-center gap-6 text-sm font-medium text-zinc-300 md:flex">
-                    {navItems.map((item) => (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        className="transition hover:text-amber-300"
-                      >
-                        {item.label}
-                      </Link>
-                    ))}
-                  </nav>
+                  </Link>
                   <div className="flex items-center gap-3">
                     <HeaderChannelStatus />
                     <WalletButton />

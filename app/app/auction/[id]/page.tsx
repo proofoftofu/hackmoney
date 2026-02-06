@@ -39,9 +39,13 @@ export default function AuctionDetailPage() {
     lastBidder,
     history,
     placeBid,
+    closeOrder,
   } = useAuctionSession(auctionId, sellerAddress);
   const { isConnected } = useYellow();
   const [isSigning, setIsSigning] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [isClosed, setIsClosed] = useState(false);
+  const isEnded = timeLeft === 0;
 
   const handleBid = async () => {
     if (isSigning) return;
@@ -49,6 +53,17 @@ export default function AuctionDetailPage() {
     await new Promise((resolve) => setTimeout(resolve, 600));
     await placeBid();
     setIsSigning(false);
+  };
+
+  const handleProceed = async () => {
+    if (isClosing || isClosed) return;
+    setIsClosing(true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const signature = await closeOrder();
+    setIsClosing(false);
+    if (signature) {
+      setIsClosed(true);
+    }
   };
 
   return (
@@ -129,7 +144,7 @@ export default function AuctionDetailPage() {
               <button
                 onClick={handleBid}
                 className="relative overflow-hidden rounded-2xl bg-amber-400 px-5 py-4 text-lg font-semibold text-slate-950 shadow-[0_20px_60px_-30px_rgba(250,204,21,0.8)] transition hover:bg-amber-300 disabled:cursor-wait"
-                disabled={isSigning}
+                disabled={isSigning || isEnded}
               >
                 <span className="relative z-10 flex items-center justify-center gap-3">
                   {isSigning ? (
@@ -140,12 +155,30 @@ export default function AuctionDetailPage() {
                   ) : (
                     <>
                       <Gavel className="h-5 w-5" />
-                      Bid Now
+                      {isEnded ? "Auction Ended" : "Bid Now"}
                     </>
                   )}
                 </span>
                 <span className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.4),_transparent_55%)] opacity-70" />
               </button>
+
+              {isEnded && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-300">
+                  <p className="font-semibold text-white">Auction ended</p>
+                  <p className="mt-2 text-zinc-400">You can get the product now.</p>
+                  <button
+                    onClick={handleProceed}
+                    className="mt-4 w-full rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-200 transition hover:border-amber-400 hover:text-amber-100 disabled:cursor-wait"
+                    disabled={isClosing || isClosed}
+                  >
+                    {isClosed
+                      ? "Order Closed"
+                      : isClosing
+                      ? "Processing Payment..."
+                      : "Proceed to Buy"}
+                  </button>
+                </div>
+              )}
 
               <div className="grid gap-3 text-sm text-zinc-400">
                 <div className="flex items-center gap-2">

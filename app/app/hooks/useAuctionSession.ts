@@ -47,6 +47,7 @@ export function useAuctionSession(
 ) {
   const {
     createAppSession,
+    closeAppSession,
     submitAppState,
     subscribe,
     walletAddress,
@@ -217,6 +218,24 @@ export function useAuctionSession(
 
   const formattedTime = useMemo(() => formatTime(timeLeft), [timeLeft]);
 
+  const closeOrder = useCallback(async () => {
+    if (!sessionId || !walletAddress) return null;
+    const mockSignature = `0xmock-${Date.now().toString(16)}`;
+    console.log("[yellow] closeOrder", { auctionId, sessionId, mockSignature });
+
+    const allocations: RPCAppSessionAllocation[] = [
+      { participant: sellerAddress, asset: "ytest.usd", amount: currentPrice.toFixed(2) },
+      { participant: walletAddress, asset: "ytest.usd", amount: "0.00" },
+    ];
+
+    await closeAppSession({
+      appSessionId: sessionId as `0x${string}`,
+      allocations,
+    });
+
+    return mockSignature;
+  }, [auctionId, sessionId, walletAddress, sellerAddress, currentPrice, closeAppSession]);
+
   return {
     sessionId,
     version,
@@ -227,5 +246,6 @@ export function useAuctionSession(
     history,
     createSession,
     placeBid,
+    closeOrder,
   };
 }
