@@ -38,8 +38,6 @@ type SessionState = {
   chainId: number;
   channelId?: `0x${string}`;
   config?: Config;
-  lastChannelsPayload?: any;
-  lastChannelsAt?: number;
 };
 
 export type LedgerBalances = {
@@ -324,37 +322,21 @@ const extractUnifiedBalance = (payload: any): number => {
 };
 
 const requestChannels = async (sessionState: SessionState) => {
-  try {
-    const nitrolite = await import("@erc7824/nitrolite");
-    const createGetChannelsMessage = (nitrolite as any).createGetChannelsMessage;
-    if (typeof createGetChannelsMessage === "function") {
-      const msg = await createGetChannelsMessage(
-        sessionState.sessionSigner,
-        sessionState.walletAddress,
-        undefined,
-        undefined,
-        Date.now()
-      );
-      log("Requesting channels (nitrolite helper)...");
-      sessionState.ws.send(msg);
-      return;
-    }
-  } catch (error) {
-    log("Channels helper not available, falling back to raw request.", error);
+  const nitrolite = await import("@erc7824/nitrolite");
+  const createGetChannelsMessage = (nitrolite as any).createGetChannelsMessage;
+  if (typeof createGetChannelsMessage !== "function") {
+    throw new Error("createGetChannelsMessage is not available in nitrolite.");
   }
 
-  const fallbackPayloads = [
-    { method: "channels", params: {} },
-    { method: "get_channels", params: {} },
-  ];
-  for (const payload of fallbackPayloads) {
-    try {
-      log("Requesting channels (raw):", payload.method);
-      sessionState.ws.send(JSON.stringify(payload));
-    } catch (error) {
-      log("Failed to send raw channels request.", error);
-    }
-  }
+  const msg = await createGetChannelsMessage(
+    sessionState.sessionSigner,
+    sessionState.walletAddress,
+    undefined,
+    undefined,
+    Date.now()
+  );
+  log("Requesting channels...");
+  sessionState.ws.send(msg);
 };
 
 const ensureSession = () => {
@@ -434,23 +416,6 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
         token: DEFAULT_TOKEN,
         chainId,
       };
-
-      ws.addEventListener("message", (event) => {
-        try {
-          const message = JSON.parse(String(event.data));
-          const method = message?.method ?? message?.res?.[1];
-          if (method !== "channels") return;
-          sessionState.lastChannelsPayload =
-            message?.res?.[2] ?? message?.params ?? message?.result ?? {};
-          sessionState.lastChannelsAt = Date.now();
-          logDebug("channels", "cached payload", {
-            channelCount: extractChannelsFromPayload(sessionState.lastChannelsPayload)
-              .length,
-          });
-        } catch (error) {
-          console.warn("[yellowClient] Failed to parse channels message", error);
-        }
-      });
 
       sessionState.config = await fetchConfig(ws, sessionSigner);
       sessionState.token = resolveToken(sessionState.config, chainId);
@@ -588,6 +553,16 @@ const detectOpenChannelId = async (sessionState: SessionState): Promise<`0x${str
 export async function getLedgerBalances(): Promise<LedgerBalances> {
   const sessionState = ensureSession();
   const { createGetLedgerBalancesMessage } = await import("@erc7824/nitrolite");
+  await requestChannels(sessionState);
+  const channelsResp = await waitForResponse(
+    sessionState.ws,
+    "channels",
+    20000,
+    "ledger"
+  );
+  const channelsPayload =
+    channelsResp?.res?.[2] ?? channelsResp?.result ?? channelsResp?.params ?? {};
+
   const ledgerMsg = await createGetLedgerBalancesMessage(
     sessionState.sessionSigner,
     sessionState.walletAddress,
@@ -595,61 +570,13 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
   );
   log("Requesting ledger balances...");
   sessionState.ws.send(ledgerMsg);
-  await requestChannels(sessionState);
-
-  let ledgerPayload: any = {};
-  let channelsPayload: any = null;
-
-  const firstResp = await waitForResponse(
+  const ledgerResp = await waitForResponse(
     sessionState.ws,
-    ["channels", "get_ledger_balances"],
+    "get_ledger_balances",
     20000,
     "ledger"
   );
-  const firstMethod = extractResponseMethod(firstResp);
-  const firstPayload = firstResp?.res?.[2] ?? firstResp?.result ?? firstResp?.params ?? {};
-
-  if (firstMethod === "channels") {
-    channelsPayload = firstPayload;
-    try {
-      const ledgerResp = await waitForResponse(
-        sessionState.ws,
-        "get_ledger_balances",
-        8000,
-        "ledger"
-      );
-      ledgerPayload = ledgerResp?.res?.[2] ?? ledgerResp?.result ?? ledgerResp?.params ?? {};
-    } catch (error) {
-      log("No ledger payload returned after channels.", error);
-    }
-  } else {
-    ledgerPayload = firstPayload;
-    try {
-      const channelsResp = await waitForResponse(
-        sessionState.ws,
-        "channels",
-        8000,
-        "ledger"
-      );
-      channelsPayload =
-        channelsResp?.res?.[2] ?? channelsResp?.result ?? channelsResp?.params ?? {};
-    } catch (error) {
-      log("No channels payload returned after ledger request.", error);
-    }
-  }
-
-  if (!channelsPayload) {
-    channelsPayload = sessionState.lastChannelsPayload ?? {};
-  }
-
-  logDebug("ledger", "channels selection", {
-    fromResponse: Boolean(channelsPayload && channelsPayload !== sessionState.lastChannelsPayload),
-    cachedAt: sessionState.lastChannelsAt,
-    cachedAgeMs: sessionState.lastChannelsAt
-      ? Date.now() - sessionState.lastChannelsAt
-      : null,
-    channelCount: extractChannelsFromPayload(channelsPayload).length,
-  });
+  const ledgerPayload = ledgerResp?.res?.[2] ?? ledgerResp?.result ?? ledgerResp?.params ?? {};
 
   const channels = extractChannelsFromPayload(channelsPayload);
   const targetChannelId = sessionState.channelId;
