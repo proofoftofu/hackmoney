@@ -118,7 +118,7 @@ export default function AuctionDetailPage() {
   }
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[1.4fr_0.9fr]">
+    <div className="space-y-10">
       <section className="space-y-6">
         <div className="rounded-[32px] border border-white/10 bg-slate-950/80 p-8">
           <div className="flex flex-wrap items-center justify-between gap-6">
@@ -143,7 +143,7 @@ export default function AuctionDetailPage() {
             </div>
           </div>
 
-          <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="mt-8 grid gap-6 lg:grid-cols-[1.3fr_1fr]">
             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-amber-400/20 via-transparent to-transparent p-6">
               <div className="absolute right-6 top-6 flex items-center gap-2 rounded-full border border-white/20 bg-black/40 px-3 py-1 text-xs text-zinc-200">
                 <Waves className="h-4 w-4 text-amber-300" />
@@ -246,7 +246,7 @@ export default function AuctionDetailPage() {
         </div>
       </section>
 
-      <aside className="space-y-6">
+      <section className="space-y-6">
         <div className="rounded-3xl border border-white/10 bg-black/40 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -288,31 +288,7 @@ export default function AuctionDetailPage() {
             </AnimatePresence>
           </div>
         </div>
-
-        <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-amber-400/10 via-transparent to-transparent p-6">
-          <p className="text-xs uppercase tracking-[0.2em] text-amber-200">
-            Session Metrics
-          </p>
-          <div className="mt-4 grid gap-3 text-sm text-zinc-300">
-            <div className="flex items-center justify-between">
-              <span>State updates</span>
-              <span className="font-semibold text-white">{history.length}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Latest version</span>
-              <span className="font-semibold text-white">
-                {history[0]?.version ?? 0}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Seller address</span>
-              <span className="font-mono text-xs text-amber-200">
-                {sellerAddress}
-              </span>
-            </div>
-          </div>
-        </div>
-      </aside>
+      </section>
     </div>
   );
 }
