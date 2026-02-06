@@ -26,6 +26,12 @@ Built on Yellow Network state channels, this system moves the entire auction pro
 
 Every individual bid and the final payout are managed directly within the state channel, ensuring that every move is signed and verified in real time. To keep the process honest, the session is protected by a 2-of-3 escrow system involving the buyer, the seller, and the operator. This setup ensures that no one can cheat the system, as any final settlement requires agreement between the parties, making the auction both lightning-fast and mathematically secure.
 
+### References
+
+The majority of the implementation related to Yellow Network is available here.
+
+https://github.com/proofoftofu/hackmoney/blob/main/app/app/lib/yellowClient.ts
+
 I also conducted an experiment integrating State Channels with Sui to assess the feasibility of integrating Yellow Network with Sui. Details are available here.
 
 https://github.com/proofoftofu/hackmoney/tree/main/experiments/sui
