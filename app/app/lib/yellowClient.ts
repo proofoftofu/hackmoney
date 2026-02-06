@@ -157,29 +157,25 @@ export function getActiveSession() {
   return activeSession;
 }
 
-export async function openChannel(config: YellowConnectionConfig): Promise<string> {
-  ensureBrowser();
+const reuseSessionIfPossible = (config: YellowConnectionConfig) => {
+  if (!activeSession) return null;
+  if (activeSession.walletAddress !== config.address) return null;
+  if (activeSession.ws.readyState !== WebSocket.OPEN) return null;
+  return activeSession;
+};
 
-  if (activeSession?.channelId) {
-    log("Reusing active channel:", activeSession.channelId);
-    return activeSession.channelId;
-  }
+const connectSession = async (config: YellowConnectionConfig): Promise<SessionState> => {
+  const existing = reuseSessionIfPossible(config);
+  if (existing) return existing;
 
   const nitrolite = await import("@erc7824/nitrolite");
   const {
     createAuthRequestMessage,
     createAuthVerifyMessageFromChallenge,
-    createCreateChannelMessage,
     createECDSAMessageSigner,
     createEIP712AuthMessageSigner,
-    createGetConfigMessage,
-    createGetLedgerBalancesMessage,
-    NitroliteClient,
-    WalletStateSigner,
   } = nitrolite;
-  const viem = await import("viem");
   const viemAccounts = await import("viem/accounts");
-  const viemChains = await import("viem/chains");
 
   const chainId = config.walletClient.chain?.id ?? DEFAULT_CHAIN_ID;
   log("Opening channel on chain:", chainId);
@@ -256,32 +252,76 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
   await waitForResponse(ws, "auth_verify");
   log("Authenticated.");
 
+  activeSession = sessionState;
+  return sessionState;
+};
+
+const detectOpenChannelId = async (sessionState: SessionState): Promise<`0x${string}` | null> => {
+  const { createGetLedgerBalancesMessage } = await import("@erc7824/nitrolite");
   const ledgerMsg = await createGetLedgerBalancesMessage(
-    sessionSigner,
-    config.address,
+    sessionState.sessionSigner,
+    sessionState.walletAddress,
     Date.now()
   );
   log("Requesting ledger balances (channels)...");
-  ws.send(ledgerMsg);
-  const channelsResp = await waitForResponse(ws, "channels");
+  sessionState.ws.send(ledgerMsg);
+  const channelsResp = await waitForResponse(sessionState.ws, "channels");
   const channels = channelsResp?.res?.[2]?.channels ?? [];
   const openChannel = channels.find((channel: any) => channel.status === "open");
+  return (openChannel?.channel_id as `0x${string}` | undefined) ?? null;
+};
 
-  if (openChannel?.channel_id) {
-    sessionState.channelId = openChannel.channel_id as `0x${string}`;
-    log("Found open channel:", sessionState.channelId);
+export async function detectOpenChannel(
+  config: YellowConnectionConfig
+): Promise<`0x${string}` | null> {
+  ensureBrowser();
+  const sessionState = await connectSession(config);
+  const channelId = await detectOpenChannelId(sessionState);
+  if (channelId) {
+    sessionState.channelId = channelId;
     activeSession = sessionState;
+    log("Found open channel:", sessionState.channelId);
+  } else {
+    log("No open channel detected.");
+  }
+  return channelId;
+}
+
+export async function openChannel(config: YellowConnectionConfig): Promise<string> {
+  ensureBrowser();
+
+  if (activeSession?.channelId) {
+    log("Reusing active channel:", activeSession.channelId);
+    return activeSession.channelId;
+  }
+
+  const nitrolite = await import("@erc7824/nitrolite");
+  const {
+    createCreateChannelMessage,
+    NitroliteClient,
+    WalletStateSigner,
+  } = nitrolite;
+  const viem = await import("viem");
+  const viemChains = await import("viem/chains");
+
+  const sessionState = await connectSession(config);
+
+  const existingChannelId = await detectOpenChannelId(sessionState);
+  if (existingChannelId) {
+    sessionState.channelId = existingChannelId;
+    activeSession = sessionState;
+    log("Found open channel:", sessionState.channelId);
     return sessionState.channelId;
   }
 
   log("No open channel. Creating new channel...");
-  const createChannel = await createCreateChannelMessage(sessionSigner, {
-    chain_id: chainId,
+  const createChannel = await createCreateChannelMessage(sessionState.sessionSigner, {
+    chain_id: sessionState.chainId,
     token: sessionState.token,
   });
   console.log("DEBUG: Sending create_channel payload:", JSON.stringify(createChannel));
-  ws.send(createChannel);
-  const created = await waitForResponse(ws, "create_channel");
+  sessionState.ws.send(createChannel);
+  const created = await waitForResponse(sessionState.ws, "create_channel");
   const createParams = created?.res?.[2];
   if (!createParams) {
     throw new Error("Yellow did not return create_channel params.");
@@ -304,7 +344,7 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
     throw new Error("Yellow create_channel response missing required data.");
   }
 
-  const network = resolveNetwork(sessionState.config, chainId);
+  const network = resolveNetwork(sessionState.config, sessionState.chainId);
   const custody = network?.custody_address ?? network?.custodyAddress;
   const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
   if (!custody || !adjudicator) {
@@ -328,7 +368,7 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
       custody,
       adjudicator,
     },
-    chainId,
+    chainId: sessionState.chainId,
     challengeDuration,
   });
 

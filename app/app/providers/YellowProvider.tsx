@@ -3,6 +3,7 @@
 import React, { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import {
+  detectOpenChannel as sdkDetectOpenChannel,
   deposit as sdkDeposit,
   getActiveSession,
   openChannel as sdkOpenChannel,
@@ -14,6 +15,8 @@ type YellowContextValue = {
   ws: WebSocket | null;
   isConnected: boolean;
   hasWallet: boolean;
+  channelId: string | null;
+  isDetectingChannel: boolean;
   unifiedBalance: number;
   setUnifiedBalance: (next: number) => void;
   messageSigner: (payload: string) => Promise<string>;
@@ -33,10 +36,52 @@ type YellowProviderProps = {
 export function YellowProvider({ children }: YellowProviderProps) {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [channelId, setChannelId] = useState<string | null>(null);
+  const [isDetectingChannel, setIsDetectingChannel] = useState(false);
   const [unifiedBalance, setUnifiedBalance] = useState(18.4);
   const { address } = useAccount();
   const { data: walletClient } = useWalletClient();
   const hasWallet = Boolean(walletClient && address);
+
+  useEffect(() => {
+    if (!walletClient || !address) {
+      setChannelId(null);
+      setWs(null);
+      setIsConnected(false);
+      return;
+    }
+
+    let isMounted = true;
+    setIsDetectingChannel(true);
+    sdkDetectOpenChannel({
+      clearnodeUrl: CLEARNODE_URL,
+      walletClient,
+      address,
+      application: "Yellow Auction",
+      scope: "auction.app",
+    })
+      .then((detectedChannelId) => {
+        if (!isMounted) return;
+        setChannelId(detectedChannelId ?? null);
+        const session = getActiveSession();
+        if (session?.ws) {
+          setWs(session.ws);
+        }
+      })
+      .catch((error) => {
+        if (!isMounted) return;
+        console.warn("[YellowProvider] Failed to detect open channel", error);
+        setChannelId(null);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setIsDetectingChannel(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [walletClient, address]);
 
   useEffect(() => {
     if (!ws) return;
@@ -90,6 +135,7 @@ export function YellowProvider({ children }: YellowProviderProps) {
     if (session?.ws) {
       setWs(session.ws);
     }
+    setChannelId(channelId);
     return channelId;
   }, [walletClient, address]);
 
@@ -108,6 +154,8 @@ export function YellowProvider({ children }: YellowProviderProps) {
       ws,
       isConnected,
       hasWallet,
+      channelId,
+      isDetectingChannel,
       unifiedBalance,
       setUnifiedBalance,
       messageSigner,
@@ -119,6 +167,8 @@ export function YellowProvider({ children }: YellowProviderProps) {
       ws,
       isConnected,
       hasWallet,
+      channelId,
+      isDetectingChannel,
       unifiedBalance,
       messageSigner,
       openChannel,

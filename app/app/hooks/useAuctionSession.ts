@@ -41,7 +41,8 @@ const formatTime = (seconds: number) => `0:${seconds.toString().padStart(2, "0")
 const mockWalletAddress = "0xA11c...9E2b";
 
 export function useAuctionSession(auctionId: string) {
-  const { ws, unifiedBalance, deposit, messageSigner, openChannel, hasWallet } = useYellow();
+  const { ws, unifiedBalance, deposit, messageSigner, hasWallet, channelId } =
+    useYellow();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [currentPrice, setCurrentPrice] = useState(0.05);
@@ -66,7 +67,9 @@ export function useAuctionSession(auctionId: string) {
   }, []);
 
   const joinAuction = useCallback(async () => {
-    const channelId = await openChannel();
+    if (!channelId) {
+      throw new Error("Open a channel before joining the auction.");
+    }
     const nextSessionId = `${auctionId}-${channelId}`;
     setSessionId(nextSessionId);
 
@@ -83,15 +86,15 @@ export function useAuctionSession(auctionId: string) {
       activeWs.send(JSON.stringify({ ...payload, signature }));
       // TODO: Sync with experiments/yellow/index.ts open session message format
     }
-  }, [auctionId, openChannel, ws, messageSigner]);
+  }, [auctionId, channelId, ws, messageSigner]);
 
   useEffect(() => {
-    if (!sessionId && hasWallet) {
+    if (!sessionId && hasWallet && channelId) {
       joinAuction().catch((error) => {
         console.warn("Failed to join auction session", error);
       });
     }
-  }, [joinAuction, sessionId, hasWallet]);
+  }, [joinAuction, sessionId, hasWallet, channelId]);
 
   const placeBid = useCallback(async () => {
     const bidAmount = 0.01;
