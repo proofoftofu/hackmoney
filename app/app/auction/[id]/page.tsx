@@ -67,17 +67,17 @@ export default function AuctionDetailPage() {
     }
   };
 
-  if (!hasWallet || !isConnected) {
+  if (!hasWallet) {
     return (
       <div className="mx-auto max-w-3xl rounded-[32px] border border-white/10 bg-slate-950/80 p-8 text-center shadow-[0_30px_80px_-45px_rgba(250,204,21,0.6)]">
         <p className="text-xs uppercase tracking-[0.3em] text-amber-300">
-          Sign In Required
+          Wallet Required
         </p>
         <h1 className="mt-4 text-3xl font-semibold text-white">
-          Connect your wallet and sign in to enter the auction.
+          Connect your wallet to enter the auction.
         </h1>
         <p className="mt-3 text-sm text-zinc-400">
-          Authentication is required before creating a buying session.
+          You can create a session after your wallet is connected.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           <ConnectButton.Custom>
@@ -87,27 +87,13 @@ export default function AuctionDetailPage() {
 
               return (
                 <div className={ready ? "" : "pointer-events-none opacity-0"}>
-                  {!connected ? (
-                    <button
-                      type="button"
-                      onClick={openConnectModal}
-                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
-                    >
-                      Connect Wallet
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (isConnecting) return;
-                        await connectSession();
-                      }}
-                      disabled={isConnecting}
-                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
-                    >
-                      {isConnecting ? "Signing In..." : "Sign In"}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={openConnectModal}
+                    className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+                  >
+                    {connected ? "Wallet Connected" : "Connect Wallet"}
+                  </button>
                 </div>
               );
             }}
@@ -139,9 +125,36 @@ export default function AuctionDetailPage() {
                   isConnected ? "bg-emerald-400" : "bg-amber-300"
                 }`}
               />
-              Auth: {isConnected ? "Signed In" : "Signed Out"}
+              Session: {isConnected ? "Active" : "Not Created"}
             </div>
           </div>
+
+          {!isConnected && (
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-amber-400/30 bg-amber-300/10 p-5 text-sm text-amber-100">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-amber-200">
+                  Session Required
+                </p>
+                <p className="mt-2 text-base font-semibold text-white">
+                  Create a session to start bidding.
+                </p>
+                <p className="mt-1 text-sm text-amber-100/80">
+                  Sessions only apply to this auction.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isConnecting) return;
+                  await connectSession();
+                }}
+                disabled={isConnecting}
+                className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
+              >
+                {isConnecting ? "Creating Session..." : "Create Session"}
+              </button>
+            </div>
+          )}
 
           <div className="mt-8 grid gap-6 lg:grid-cols-[1.3fr_1fr]">
             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-amber-400/20 via-transparent to-transparent p-6">
@@ -195,7 +208,7 @@ export default function AuctionDetailPage() {
               <button
                 onClick={handleBid}
                 className="relative overflow-hidden rounded-2xl bg-amber-400 px-5 py-4 text-lg font-semibold text-slate-950 shadow-[0_20px_60px_-30px_rgba(250,204,21,0.8)] transition hover:bg-amber-300 disabled:cursor-wait"
-                disabled={isSigning || isEnded}
+                disabled={isSigning || isEnded || !isConnected}
               >
                 <span className="relative z-10 flex items-center justify-center gap-3">
                   {isSigning ? (
@@ -206,7 +219,11 @@ export default function AuctionDetailPage() {
                   ) : (
                     <>
                       <Gavel className="h-5 w-5" />
-                      {isEnded ? "Auction Ended" : "Bid Now"}
+                      {isEnded
+                        ? "Auction Ended"
+                        : !isConnected
+                        ? "Create Session to Bid"
+                        : "Bid Now"}
                     </>
                   )}
                 </span>

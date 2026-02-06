@@ -5,7 +5,6 @@ import "./globals.css";
 import { YellowProvider } from "./providers/YellowProvider";
 import { Web3Provider } from "./providers/Web3Provider";
 import { WalletButton } from "./components/WalletButton";
-import { HeaderChannelStatus } from "./components/HeaderChannelStatus";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
@@ -46,15 +45,14 @@ export default function RootLayout({
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 via-amber-300 to-yellow-200 text-slate-950 shadow-lg shadow-amber-500/30">
                       Y
                     </div>
-                    <div>
-                      <p className="text-sm uppercase tracking-[0.2em] text-amber-300">
-                        Yellow Network
-                      </p>
-                      <p className="text-xl font-semibold text-white">Penny Auction</p>
-                    </div>
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.2em] text-amber-300">
+                      Yellow Network
+                    </p>
+                    <p className="text-xl font-semibold text-white">Penny Auction</p>
+                  </div>
                   </Link>
                   <div className="flex items-center gap-3">
-                    <HeaderChannelStatus />
                     <WalletButton />
                   </div>
                 </div>

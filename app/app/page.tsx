@@ -3,66 +3,10 @@
 import Link from "next/link";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { ArrowUpRight } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { useYellow } from "./hooks/useYellow";
 
 export default function Home() {
-  const { hasWallet, isConnected, isConnecting, connectSession, getUnifiedBalance, walletAddress } =
-    useYellow();
-  const [unifiedBalance, setUnifiedBalance] = useState<number | null>(null);
-  const [isBalanceLoading, setIsBalanceLoading] = useState(false);
-  const [balanceError, setBalanceError] = useState<string | null>(null);
-  const [isFaucetLoading, setIsFaucetLoading] = useState(false);
-
-  const refreshBalance = useCallback(async () => {
-    setIsBalanceLoading(true);
-    setBalanceError(null);
-    const balance = await getUnifiedBalance();
-    if (balance === null) {
-      setBalanceError("Unable to load unified balance.");
-    }
-    setUnifiedBalance(balance);
-    setIsBalanceLoading(false);
-  }, [getUnifiedBalance]);
-
-  useEffect(() => {
-    if (!isConnected) {
-      setUnifiedBalance(null);
-      return;
-    }
-    refreshBalance();
-  }, [isConnected, refreshBalance]);
-
-  const needsFaucet = useMemo(
-    () => unifiedBalance !== null && unifiedBalance <= 0,
-    [unifiedBalance]
-  );
-
-  const requestFaucet = async () => {
-    if (!walletAddress) return;
-    setIsFaucetLoading(true);
-    setBalanceError(null);
-    try {
-      const response = await fetch(
-        "https://clearnet-sandbox.yellow.com/faucet/requestTokens",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userAddress: walletAddress }),
-        }
-      );
-      if (!response.ok) {
-        throw new Error(`Faucet request failed (${response.status})`);
-      }
-      await refreshBalance();
-    } catch (error) {
-      setBalanceError(
-        error instanceof Error ? error.message : "Faucet request failed."
-      );
-    } finally {
-      setIsFaucetLoading(false);
-    }
-  };
+  const { hasWallet } = useYellow();
 
   return (
     <div className="space-y-10">
@@ -95,30 +39,7 @@ export default function Home() {
                       Connect Wallet
                     </button>
                   )}
-                  {connected && !isConnected && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (isConnecting || !hasWallet) return;
-                        await connectSession();
-                      }}
-                      disabled={isConnecting || !hasWallet}
-                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
-                    >
-                      {isConnecting ? "Signing In..." : "Sign In"}
-                    </button>
-                  )}
-                  {connected && isConnected && needsFaucet && (
-                    <button
-                      type="button"
-                      onClick={requestFaucet}
-                      disabled={isFaucetLoading}
-                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
-                    >
-                      {isFaucetLoading ? "Requesting USDC..." : "Request Test USDC"}
-                    </button>
-                  )}
-                  {connected && isConnected && !needsFaucet && (
+                  {connected && (
                     <Link
                       href="/auction/aurora"
                       className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
@@ -135,21 +56,10 @@ export default function Home() {
             <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2">
               {!hasWallet
                 ? "Connect wallet to continue."
-                : !isConnected
-                ? "Sign in to continue."
-                : needsFaucet
-                ? "You need test USDC from the faucet to enter."
-                : isBalanceLoading
-                ? "Loading unified balance..."
-                : unifiedBalance === null
-                ? "Balance unavailable."
-                : `Unified balance: ${unifiedBalance.toFixed(2)} USDC`}
+                : "Create your auction session after you enter."}
             </span>
           </div>
         </div>
-        {balanceError && (
-          <p className="mt-3 text-sm text-rose-300">{balanceError}</p>
-        )}
       </section>
 
       <section className="grid gap-6 lg:grid-cols-3">

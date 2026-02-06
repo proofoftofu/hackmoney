@@ -431,7 +431,7 @@ export async function createAppSession(
     protocol: input.protocol ?? RPCProtocolVersion.NitroRPC_0_4,
     participants: input.participants,
     weights: input.weights ?? input.participants.map(() => defaultWeight),
-    quorum: input.quorum ?? 100,
+    quorum: input.quorum ?? 0,
     challenge: input.challenge ?? 0,
     nonce: input.nonce ?? Date.now(),
     application: input.application ?? "Yellow Auction",
