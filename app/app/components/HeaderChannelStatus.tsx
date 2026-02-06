@@ -26,15 +26,15 @@ export function HeaderChannelStatus() {
 
   const status = useMemo(() => {
     if (!hasWallet) {
-      return { label: "Wallet: Disconnected", tone: "muted" as const };
+      return { label: "Auth: Wallet Missing", tone: "muted" as const };
     }
     if (isConnecting) {
-      return { label: "Session: Connecting", tone: "busy" as const };
+      return { label: "Auth: Signing In", tone: "busy" as const };
     }
     if (isConnected) {
-      return { label: "Session: Live", tone: "live" as const };
+      return { label: "Auth: Signed In", tone: "live" as const };
     }
-    return { label: "Session: Offline", tone: "warn" as const };
+    return { label: "Auth: Signed Out", tone: "warn" as const };
   }, [hasWallet, isConnecting, isConnected]);
 
   const dotClass =
@@ -50,28 +50,28 @@ export function HeaderChannelStatus() {
     switch (authStep) {
       case "request":
         return {
-          title: "Connecting to Yellow",
-          body: "Preparing the Yellow Network session. Keep your wallet ready.",
+          title: "Signing In",
+          body: "Preparing authentication with Yellow Network.",
         };
       case "challenge":
         return {
-          title: "Authorize Yellow Session",
+          title: "Authorize Sign-In",
           body: "Sign the Yellow Network authentication request in your wallet to continue.",
         };
       case "verify":
         return {
           title: "Verifying Signature",
-          body: "Finalizing your session with Yellow Network.",
+          body: "Finalizing your authentication with Yellow Network.",
         };
       case "success":
         return {
-          title: "Session Ready",
-          body: "You are connected to the Yellow Network.",
+          title: "Signed In",
+          body: "You are authenticated with Yellow Network.",
         };
       case "error":
         return {
-          title: "Authorization Failed",
-          body: authError ?? "We couldn't authenticate your Yellow session.",
+          title: "Sign-In Failed",
+          body: authError ?? "We couldn't authenticate your account.",
         };
       default:
         return null;
@@ -155,10 +155,10 @@ export function HeaderChannelStatus() {
                     <div className="flex items-center justify-between gap-4">
                       <div>
                         <p className="text-xs uppercase tracking-[0.3em] text-amber-300">
-                          Session Manager
+                          Authentication
                         </p>
                         <h2 className="mt-2 text-xl font-semibold">
-                          Yellow Network Session
+                          Yellow Network Sign-In
                         </h2>
                       </div>
                       <button
@@ -172,7 +172,7 @@ export function HeaderChannelStatus() {
 
                     <div className="mt-6 space-y-3 rounded-2xl border border-white/10 bg-black/40 p-4 text-sm text-zinc-300">
                       <div className="flex items-center justify-between">
-                        <span>Session status</span>
+                        <span>Sign-in status</span>
                         <span className="text-white">
                           {isConnected ? "Connected" : "Not connected"}
                         </span>
@@ -186,8 +186,8 @@ export function HeaderChannelStatus() {
                     </div>
 
                     <p className="mt-4 text-xs text-zinc-400">
-                      Sessions are authenticated with your wallet and used to sign
-                      app state updates.
+                      Sign in once to authenticate. App sessions are used later
+                      for bidding and checkout.
                     </p>
 
                     <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
@@ -202,7 +202,7 @@ export function HeaderChannelStatus() {
                           className="inline-flex items-center gap-2 rounded-2xl bg-amber-400 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
                         >
                           <Link2 className="h-4 w-4" />
-                          {hasWallet ? "Connect Session" : "Connect Wallet"}
+                          {hasWallet ? "Sign In" : "Connect Wallet"}
                         </button>
                       ) : (
                         <button
@@ -215,7 +215,7 @@ export function HeaderChannelStatus() {
                           disabled={isConnecting}
                           className="rounded-2xl bg-rose-500/90 px-5 py-2 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:bg-rose-500/40"
                         >
-                          Disconnect Session
+                          Sign Out
                         </button>
                       )}
                       <button

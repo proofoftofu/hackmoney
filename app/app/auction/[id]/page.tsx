@@ -9,6 +9,7 @@ import {
   Timer,
   Waves,
 } from "lucide-react";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useParams } from "next/navigation";
 import { useAuctionSession } from "../../hooks/useAuctionSession";
 import { useYellow } from "../../hooks/useYellow";
@@ -41,7 +42,7 @@ export default function AuctionDetailPage() {
     placeBid,
     closeOrder,
   } = useAuctionSession(auctionId, sellerAddress);
-  const { isConnected } = useYellow();
+  const { hasWallet, isConnected, isConnecting, connectSession } = useYellow();
   const [isSigning, setIsSigning] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
@@ -66,6 +67,56 @@ export default function AuctionDetailPage() {
     }
   };
 
+  if (!hasWallet || !isConnected) {
+    return (
+      <div className="mx-auto max-w-3xl rounded-[32px] border border-white/10 bg-slate-950/80 p-8 text-center shadow-[0_30px_80px_-45px_rgba(250,204,21,0.6)]">
+        <p className="text-xs uppercase tracking-[0.3em] text-amber-300">
+          Sign In Required
+        </p>
+        <h1 className="mt-4 text-3xl font-semibold text-white">
+          Connect your wallet and sign in to enter the auction.
+        </h1>
+        <p className="mt-3 text-sm text-zinc-400">
+          Authentication is required before creating a buying session.
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <ConnectButton.Custom>
+            {({ account, chain, mounted, openConnectModal }) => {
+              const ready = mounted;
+              const connected = ready && account && chain;
+
+              return (
+                <div className={ready ? "" : "pointer-events-none opacity-0"}>
+                  {!connected ? (
+                    <button
+                      type="button"
+                      onClick={openConnectModal}
+                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+                    >
+                      Connect Wallet
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (isConnecting) return;
+                        await connectSession();
+                      }}
+                      disabled={isConnecting}
+                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
+                    >
+                      {isConnecting ? "Signing In..." : "Sign In"}
+                    </button>
+                  )}
+                </div>
+              );
+            }}
+          </ConnectButton.Custom>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-10 lg:grid-cols-[1.4fr_0.9fr]">
       <section className="space-y-6">
@@ -79,7 +130,7 @@ export default function AuctionDetailPage() {
                 Aurora Smartwatch
               </h1>
               <p className="mt-2 text-sm text-zinc-400">
-                Retail value $289 · Session ID {sessionId ?? "Pending"}
+                Retail value $289 · Buying Session {sessionId ?? "Pending"}
               </p>
             </div>
             <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-zinc-300">
@@ -88,7 +139,7 @@ export default function AuctionDetailPage() {
                   isConnected ? "bg-emerald-400" : "bg-amber-300"
                 }`}
               />
-              Session: {isConnected ? "Live" : "Waiting"}
+              Auth: {isConnected ? "Signed In" : "Signed Out"}
             </div>
           </div>
 
@@ -96,7 +147,7 @@ export default function AuctionDetailPage() {
             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-amber-400/20 via-transparent to-transparent p-6">
               <div className="absolute right-6 top-6 flex items-center gap-2 rounded-full border border-white/20 bg-black/40 px-3 py-1 text-xs text-zinc-200">
                 <Waves className="h-4 w-4 text-amber-300" />
-                App Session
+                Buying Session
               </div>
               <div className="mt-10 flex h-56 items-center justify-center rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(250,204,21,0.25),_transparent_60%)] text-4xl font-semibold text-amber-200">
                 AUR-01

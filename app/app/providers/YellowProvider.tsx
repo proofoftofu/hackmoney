@@ -115,25 +115,13 @@ export function YellowProvider({ children }: YellowProviderProps) {
   }, []);
 
   useEffect(() => {
-    if (!walletClient || !address) {
-      console.log("[yellow] wallet not connected, resetting session state");
-      setIsConnected(false);
-      setSessionAddress(null);
-      setAuthStep("idle");
-      setAuthError(null);
-      return;
-    }
-
-    let isMounted = true;
-    connectSession().catch((error) => {
-      if (!isMounted) return;
-      console.warn("[YellowProvider] Failed to connect", error);
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [walletClient, address, connectSession]);
+    if (walletClient && address) return;
+    console.log("[yellow] wallet not connected, resetting auth state");
+    setIsConnected(false);
+    setSessionAddress(null);
+    setAuthStep("idle");
+    setAuthError(null);
+  }, [walletClient, address]);
 
   const createAppSession = useCallback(async (input: CreateAppSessionInput) => {
     console.log("[yellow] createAppSession", input);

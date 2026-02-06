@@ -1,7 +1,13 @@
+"use client";
+
 import Link from "next/link";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { ArrowUpRight } from "lucide-react";
+import { useYellow } from "./hooks/useYellow";
 
 export default function Home() {
+  const { hasWallet, isConnected, isConnecting, connectSession } = useYellow();
+
   return (
     <div className="space-y-10">
       <section className="rounded-[32px] border border-white/10 bg-slate-950/80 p-8 shadow-[0_30px_80px_-45px_rgba(250,204,21,0.6)]">
@@ -17,13 +23,46 @@ export default function Home() {
           sub-second auctions and instant payouts.
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-4">
-          <Link
-            href="/auction/aurora"
-            className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
-          >
-            Enter Auction
-            <ArrowUpRight className="h-4 w-4" />
-          </Link>
+          <ConnectButton.Custom>
+            {({ account, chain, mounted, openConnectModal }) => {
+              const ready = mounted;
+              const connected = ready && account && chain;
+
+              return (
+                <div className={ready ? "" : "pointer-events-none opacity-0"}>
+                  {!connected ? (
+                    <button
+                      type="button"
+                      onClick={openConnectModal}
+                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+                    >
+                      Connect Wallet
+                    </button>
+                  ) : !isConnected ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (isConnecting || !hasWallet) return;
+                        await connectSession();
+                      }}
+                      disabled={isConnecting || !hasWallet}
+                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:bg-amber-400/40"
+                    >
+                      {isConnecting ? "Signing In..." : "Sign In"}
+                    </button>
+                  ) : (
+                    <Link
+                      href="/auction/aurora"
+                      className="inline-flex items-center gap-2 rounded-full bg-amber-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300"
+                    >
+                      Enter Auction
+                      <ArrowUpRight className="h-4 w-4" />
+                    </Link>
+                  )}
+                </div>
+              );
+            }}
+          </ConnectButton.Custom>
         </div>
       </section>
 
