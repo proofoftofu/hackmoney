@@ -68,8 +68,7 @@ export default function Home() {
             How It Works
           </p>
           <p className="mt-3 text-base text-zinc-300">
-            Each bid adds $0.01 and resets the countdown. When the timer reaches
-            zero, the last bidder wins the product.
+            Each $1 bid raises the price by $0.01 and resets the timer. When the timer hits zero, the last bidder wins and pays the final price; the seller keeps all bid fees.
           </p>
         </div>
         <div className="rounded-3xl border border-white/10 bg-black/40 p-6">
@@ -77,8 +76,7 @@ export default function Home() {
             Penny Auction Benefits
           </p>
           <p className="mt-3 text-base text-zinc-300">
-            Low-cost entry, fast-paced bidding, and the chance to win premium
-            items for a fraction of retail.
+            Buyers may win premium items for much less than retail, while sellers benefit from high engagement and increased revenue through competitive bidding.
           </p>
         </div>
         <div className="rounded-3xl border border-white/10 bg-black/40 p-6">
