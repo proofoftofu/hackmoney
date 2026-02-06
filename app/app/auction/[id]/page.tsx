@@ -176,6 +176,24 @@ export default function AuctionDetailPage() {
             <h2 className="mt-4 text-3xl font-semibold text-white">
               Hope you enjoyed penny auction with Yellow Network.
             </h2>
+            <div className="mt-6 grid gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-sm text-zinc-300">
+              <div className="flex items-center justify-between">
+                <span>Total tx count</span>
+                <span className="font-semibold text-white">{history.length}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Total balance change</span>
+                <span className="font-semibold text-white">
+                  ${(currentPrice + totalFees).toFixed(2)} paid
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Remaining budget</span>
+                <span className="font-semibold text-white">
+                  ${(budget - (currentPrice + totalFees)).toFixed(2)} sent back to unified account
+                </span>
+              </div>
+            </div>
             <p className="mt-4 text-sm text-zinc-400">
               In the hackathon only one user makes bids, but in the real app it
               would accept multiple users, and it&apos;s going to be fun.
