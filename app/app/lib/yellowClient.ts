@@ -45,7 +45,7 @@ type SessionState = {
 
 let activeSession: SessionState | null = null;
 
-const DEFAULT_TOKEN = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
+const DEFAULT_TOKEN = "0xDB9F293e3898c9E5536A3be1b0C56c89d2b32DEb";
 
 const ensureBrowser = () => {
   if (typeof window === "undefined") {
@@ -250,7 +250,7 @@ export async function openChannel(config: YellowConnectionConfig): Promise<strin
     chain_id: chainId,
     token: sessionState.token,
   });
-
+  console.log("DEBUG: Sending create_channel payload:", JSON.stringify(createChannel));
   ws.send(createChannel);
   const created = await waitForResponse(ws, "create_channel");
   const channelId = created?.res?.[2]?.channel_id as `0x${string}` | undefined;

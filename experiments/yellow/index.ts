@@ -362,6 +362,9 @@ ws.onmessage = async (event) => {
                     token: token,
                 }
             );
+
+            console.log("DEBUG: Sending create_channel payload:", JSON.stringify(createChannelMsg));
+
             ws.send(createChannelMsg);
         }
     }
