@@ -1,9 +1,22 @@
-import type {
-  RPCAsset,
-  RPCNetworkInfo,
+import { Client } from "yellow-ts";
+import {
+  createAppSessionMessage,
+  createAuthRequestMessage,
+  createAuthVerifyMessage,
+  createCloseAppSessionMessage,
   createECDSAMessageSigner,
+  createEIP712AuthMessageSigner,
+  createSubmitAppStateMessage,
+  RPCAppStateIntent,
+  RPCMethod,
+  RPCProtocolVersion,
+  type AuthChallengeResponse,
+  type RPCAppDefinition,
+  type RPCAppSessionAllocation,
+  type RPCResponse,
 } from "@erc7824/nitrolite";
 import type { WalletClient } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 export type YellowConnectionConfig = {
   clearnodeUrl: string;
@@ -20,46 +33,54 @@ export type YellowConnectionConfig = {
   onAuthError?: (error: Error) => void;
 };
 
-type Config = {
-  assets?: RPCAsset[];
-  networks?: RPCNetworkInfo[];
-  [key: string]: unknown;
-};
-
 type SessionState = {
-  ws: WebSocket;
+  client: Client;
   clearnodeUrl: string;
   walletClient: WalletClient;
   walletAddress: `0x${string}`;
   sessionPrivateKey: `0x${string}`;
   sessionSigner: ReturnType<typeof createECDSAMessageSigner>;
   sessionAddress: `0x${string}`;
-  token: `0x${string}`;
-  chainId: number;
-  channelId?: `0x${string}`;
-  config?: Config;
 };
 
-export type LedgerBalances = {
-  unifiedBalance: number;
-  channelBalance: number;
-  channelId: `0x${string}` | null;
+export type CreateAppSessionInput = {
+  participants: `0x${string}`[];
+  allocations: RPCAppSessionAllocation[];
+  application?: string;
+  protocol?: RPCProtocolVersion;
+  weights?: number[];
+  quorum?: number;
+  challenge?: number;
+  nonce?: number;
 };
 
-export type DepositBalance = {
-  custodyBalance: number;
+export type CreateAppSessionResult = {
+  appSessionId: `0x${string}`;
+  version?: number;
+  status?: string;
+  response: RPCResponse;
+};
+
+export type SubmitAppStateInput = {
+  appSessionId: `0x${string}`;
+  allocations: RPCAppSessionAllocation[];
+  version: number;
+  intent?: RPCAppStateIntent;
+  sessionData?: string;
+};
+
+export type CloseAppSessionInput = {
+  appSessionId: `0x${string}`;
+  allocations: RPCAppSessionAllocation[];
 };
 
 let activeSession: SessionState | null = null;
 let sessionPromise: Promise<SessionState> | null = null;
 let sessionKey: string | null = null;
+const SESSION_STORAGE_PREFIX = "yellow.session-key.v2";
 
-const DEFAULT_TOKEN = "0xDB9F293e3898c9E5536A3be1b0C56c89d2b32DEb";
-const DEFAULT_CHAIN_ID = 11155111; // Sepolia
-const SESSION_STORAGE_PREFIX = "yellow.session-key.v1";
-
-const ALCHEMY_RPC_URL = process.env.ALCHEMY_RPC_URL;
-const FALLBACK_RPC_URL = "https://1rpc.io/sepolia"; // Public fallback
+const listeners = new Set<(message: RPCResponse) => void>();
+let clientUnsubscribe: (() => void) | null = null;
 
 const ensureBrowser = () => {
   if (typeof window === "undefined") {
@@ -69,18 +90,15 @@ const ensureBrowser = () => {
 
 const getSessionStorageKey = (
   clearnodeUrl: string,
-  walletAddress: `0x${string}`,
-  chainId: number
-) =>
-  `${SESSION_STORAGE_PREFIX}:${encodeURIComponent(clearnodeUrl)}:${walletAddress}:${chainId}`;
+  walletAddress: `0x${string}`
+) => `${SESSION_STORAGE_PREFIX}:${encodeURIComponent(clearnodeUrl)}:${walletAddress}`;
 
 const loadStoredSessionKey = (
   clearnodeUrl: string,
-  walletAddress: `0x${string}`,
-  chainId: number
+  walletAddress: `0x${string}`
 ): `0x${string}` | null => {
   ensureBrowser();
-  const key = getSessionStorageKey(clearnodeUrl, walletAddress, chainId);
+  const key = getSessionStorageKey(clearnodeUrl, walletAddress);
   const raw = window.localStorage.getItem(key);
   if (!raw) return null;
   try {
@@ -89,8 +107,7 @@ const loadStoredSessionKey = (
       return parsed.sessionPrivateKey ?? null;
     }
     return raw as `0x${string}`;
-  } catch (error) {
-    console.warn("[yellowClient] Failed to parse stored session", error);
+  } catch {
     return null;
   }
 };
@@ -98,273 +115,129 @@ const loadStoredSessionKey = (
 const persistSessionKey = (
   clearnodeUrl: string,
   walletAddress: `0x${string}`,
-  chainId: number,
   sessionPrivateKey: `0x${string}`
 ) => {
   ensureBrowser();
-  const key = getSessionStorageKey(clearnodeUrl, walletAddress, chainId);
+  const key = getSessionStorageKey(clearnodeUrl, walletAddress);
   window.localStorage.setItem(key, sessionPrivateKey);
 };
 
-const log = (...args: unknown[]) => {
-  console.log("[yellowClient]", ...args);
+const clearStoredSessionKey = (
+  clearnodeUrl: string,
+  walletAddress: `0x${string}`
+) => {
+  ensureBrowser();
+  const key = getSessionStorageKey(clearnodeUrl, walletAddress);
+  window.localStorage.removeItem(key);
 };
 
-const logDebug = (tag: string, label: string, data?: unknown) => {
-  if (data === undefined) {
-    log(`${tag} ${label}`);
-    return;
-  }
-  log(`${tag} ${label}`, data);
-};
+const extractMethod = (message: RPCResponse) =>
+  (message as any)?.method ?? (message as any)?.res?.[1];
 
-const waitForOpen = (ws: WebSocket) =>
-  new Promise<void>((resolve, reject) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      resolve();
-      return;
-    }
-    const handleOpen = () => {
-      cleanup();
-      resolve();
-    };
-    const handleError = () => {
-      cleanup();
-      reject(new Error("Failed to open WebSocket connection."));
-    };
-    const cleanup = () => {
-      ws.removeEventListener("open", handleOpen);
-      ws.removeEventListener("error", handleError);
-    };
-    ws.addEventListener("open", handleOpen);
-    ws.addEventListener("error", handleError);
-  });
-
-const waitForResponse = (
-  ws: WebSocket,
-  expectedMethod: string | string[],
-  timeoutMs = 20000,
-  debugTag?: string
+const waitForMethod = (
+  method: RPCMethod | string,
+  timeoutMs = 20000
 ) =>
-  new Promise<any>((resolve, reject) => {
-    const expected = Array.isArray(expectedMethod)
-      ? expectedMethod
-      : [expectedMethod];
+  new Promise<RPCResponse>((resolve, reject) => {
     const timeout = setTimeout(() => {
       cleanup();
-      reject(new Error(`Timeout waiting for ${expected.join(" / ")}.`));
+      reject(new Error(`Timeout waiting for ${String(method)}.`));
     }, timeoutMs);
 
-    const handler = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(String(event.data));
-        console.log("DEBUG: message", message)
-
-        if (message?.error) {
-          if (debugTag) {
-            logDebug(debugTag, "error response", {
-              error: message.error,
-              method: message?.method ?? message?.res?.[1],
-              id: message?.id,
-              raw: message,
-            });
-          }
-          cleanup();
-          reject(new Error(message.error.message || "RPC error"));
-          return;
-        }
-        const method = message?.method ?? message?.res?.[1];
-        if (debugTag) {
-          log(`${debugTag} received`, method ?? "unknown");
-        }
-        if (!expected.includes(method)) return;
-        if (debugTag) {
-          logDebug(debugTag, "response payload", {
-            method,
-            id: message?.id,
-            raw: message,
-          });
-        }
-        cleanup();
-        resolve(message);
-      } catch (error) {
-        if (debugTag) {
-          logDebug(debugTag, "parse error", { error });
-        }
-        cleanup();
-        reject(error);
-      }
+    const handler = (message: RPCResponse) => {
+      if (extractMethod(message) !== method) return;
+      cleanup();
+      resolve(message);
     };
 
     const cleanup = () => {
       clearTimeout(timeout);
-      ws.removeEventListener("message", handler);
+      listeners.delete(handler);
     };
 
-    ws.addEventListener("message", handler);
+    listeners.add(handler);
   });
 
-const extractResponseMethod = (message: any): string | undefined =>
-  message?.method ?? message?.res?.[1];
-
-const extractChannelsFromPayload = (payload: any): any[] => {
-  return (
-    payload?.channels ??
-    payload?.result?.channels ??
-    payload?.ledger?.channels ??
-    payload?.result?.ledger?.channels ??
-    []
-  );
+const attachClientListener = (client: Client) => {
+  if (clientUnsubscribe) return;
+  clientUnsubscribe = client.listen((message: RPCResponse) => {
+    for (const listener of listeners) {
+      listener(message);
+    }
+  });
 };
 
-const fetchConfig = async (
-  ws: WebSocket,
-  sessionSigner: ReturnType<typeof createECDSAMessageSigner>
+const authenticateWallet = async (
+  sessionState: SessionState,
+  config: YellowConnectionConfig
 ) => {
-  const { createGetConfigMessage } = await import("@erc7824/nitrolite");
-  log("Requesting config...");
-  const configMsg = await createGetConfigMessage(sessionSigner);
-  ws.send(configMsg);
-  const response = await waitForResponse(ws, ["get_config", "config"], 20000, "config");
-  log("Config received.");
-  return (response?.res?.[2] ?? {}) as Config;
-};
+  const expiresAtSeconds =
+    Math.floor(Date.now() / 1000) + (config.expiresInSeconds ?? 3600);
+  const authParams = {
+    address: config.address,
+    session_key: sessionState.sessionAddress,
+    application: config.application ?? "Yellow Auction",
+    allowances: config.allowances ?? [
+      {
+        asset: "ytest.usd",
+        amount: "1000000000",
+      },
+    ],
+    expires_at: BigInt(expiresAtSeconds),
+    scope: config.scope ?? "auction.app",
+  };
 
-const resolveToken = (config: Config | undefined, chainId: number) => {
-  const assets = config?.assets ?? [];
-  const match = assets.find((asset) => asset.chain_id === chainId);
-  return (match?.token ?? DEFAULT_TOKEN) as `0x${string}`;
-};
+  const authRequest = await createAuthRequestMessage(authParams);
 
-const resolveNetwork = (config: Config | undefined, chainId: number) => {
-  const networks = config?.networks ?? [];
-  return networks.find((network: any) => (network.chain_id ?? network.chainId) === chainId);
-};
+  const handleChallenge = async (message: AuthChallengeResponse) => {
+    config.onAuthChallenge?.();
 
-const toBigInt = (value: unknown) => {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number") return BigInt(value);
-  if (typeof value === "string" && value !== "") return BigInt(value);
-  return 0n;
-};
+    const authSigner = createEIP712AuthMessageSigner(
+      sessionState.walletClient,
+      authParams,
+      { name: config.application ?? "Yellow Auction" }
+    );
 
-const fromMinorUnits = (value: bigint) => Number(value) / 100;
+    const authVerifyMessage = await createAuthVerifyMessage(authSigner, message);
+    config.onAuthVerify?.();
+    await sessionState.client.sendMessage(authVerifyMessage);
+  };
 
-const parseNumericValue = (value: unknown): number | null => {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
+  const challengeHandler = (message: RPCResponse) => {
+    if (extractMethod(message) !== RPCMethod.AuthChallenge) return;
+    handleChallenge(message as AuthChallengeResponse).catch((error) => {
+      console.warn("[yellowClient] Auth challenge handler failed", error);
+    });
+  };
+
+  listeners.add(challengeHandler);
+
+  config.onAuthRequest?.();
+  await sessionState.client.sendMessage(authRequest);
+
+  try {
+    await waitForMethod(RPCMethod.AuthVerify);
+    config.onAuthSuccess?.();
+  } finally {
+    listeners.delete(challengeHandler);
   }
-  if (typeof value === "bigint") {
-    return fromMinorUnits(value);
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const found = parseNumericValue(entry);
-      if (found !== null) return found;
-    }
-    return null;
-  }
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const keys = [
-      "available",
-      "available_balance",
-      "unified",
-      "unified_balance",
-      "balance",
-      "amount",
-      "total",
-      "free",
-    ];
-    for (const key of keys) {
-      if (record[key] !== undefined) {
-        const found = parseNumericValue(record[key]);
-        if (found !== null) return found;
-      }
-    }
-  }
-  return null;
 };
-
-const extractUnifiedBalance = (payload: any): number => {
-  const candidates = [
-    payload?.balances,
-    payload?.balances?.available,
-    payload?.balances?.unified,
-    payload?.balances?.balance,
-    payload?.result?.balances,
-    payload?.result?.balances?.available,
-    payload?.result?.balances?.unified,
-    payload?.result?.balances?.balance,
-    payload?.ledger?.balances,
-    payload?.ledger?.available,
-    payload?.ledger?.balance,
-    payload?.result?.ledger?.balances,
-    payload?.result?.ledger?.available,
-    payload?.result?.ledger?.balance,
-    payload?.ledger_balances,
-    payload?.result?.ledger_balances,
-    payload?.available_balance,
-    payload?.unified_balance,
-    payload?.balance,
-    payload?.available,
-  ];
-  for (const candidate of candidates) {
-    const value = parseNumericValue(candidate);
-    if (value !== null) return value;
-  }
-  return 0;
-};
-
-const requestChannels = async (sessionState: SessionState) => {
-  const nitrolite = await import("@erc7824/nitrolite");
-  const createGetChannelsMessage = (nitrolite as any).createGetChannelsMessage;
-  if (typeof createGetChannelsMessage !== "function") {
-    throw new Error("createGetChannelsMessage is not available in nitrolite.");
-  }
-
-  const msg = await createGetChannelsMessage(
-    sessionState.sessionSigner,
-    sessionState.walletAddress,
-    undefined,
-    undefined,
-    Date.now()
-  );
-  log("Requesting channels...");
-  sessionState.ws.send(msg);
-};
-
-const ensureSession = () => {
-  if (!activeSession) {
-    throw new Error("Yellow session not initialized. Call openChannel first.");
-  }
-  return activeSession;
-};
-
-export function getActiveSession() {
-  return activeSession;
-}
 
 const reuseSessionIfPossible = (config: YellowConnectionConfig) => {
   if (!activeSession) return null;
   if (activeSession.walletAddress !== config.address) return null;
-  if (activeSession.ws.readyState !== WebSocket.OPEN) return null;
+  if (activeSession.clearnodeUrl !== config.clearnodeUrl) return null;
   return activeSession;
 };
 
-const connectSession = async (config: YellowConnectionConfig): Promise<SessionState> => {
+const connectSession = async (
+  config: YellowConnectionConfig
+): Promise<SessionState> => {
+  ensureBrowser();
   const existing = reuseSessionIfPossible(config);
   if (existing) return existing;
 
-  const chainId = config.walletClient.chain?.id ?? DEFAULT_CHAIN_ID;
-  const nextKey = `${config.clearnodeUrl}:${config.address}:${chainId}`;
+  const nextKey = `${config.clearnodeUrl}:${config.address}`;
   if (sessionPromise && sessionKey === nextKey) {
     return sessionPromise;
   }
@@ -374,135 +247,41 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   sessionPromise = (async () => {
     const storedSessionKey = loadStoredSessionKey(
       config.clearnodeUrl,
-      config.address,
-      chainId
+      config.address
     );
-    const createSession = async (
-      sessionPrivateKeyOverride?: `0x${string}`
-    ): Promise<SessionState> => {
-      const nitrolite = await import("@erc7824/nitrolite");
-      const {
-        createAuthRequestMessage,
-        createAuthVerifyMessageFromChallenge,
-        createECDSAMessageSigner,
-        createEIP712AuthMessageSigner,
-      } = nitrolite;
-      const viemAccounts = await import("viem/accounts");
 
-      log("Opening channel on chain:", chainId);
+    const sessionPrivateKey = storedSessionKey ?? generatePrivateKey();
+    const sessionAccount = privateKeyToAccount(sessionPrivateKey);
+    const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
 
-      const sessionPrivateKey =
-        sessionPrivateKeyOverride ?? viemAccounts.generatePrivateKey();
-      const sessionAccount = viemAccounts.privateKeyToAccount(sessionPrivateKey);
-      const sessionSigner = createECDSAMessageSigner(sessionPrivateKey);
-      log(
-        sessionPrivateKeyOverride
-          ? "Reusing stored session key:"
-          : "Generated session key:",
-        sessionAccount.address
-      );
+    const client = new Client({ url: config.clearnodeUrl });
+    await client.connect();
+    attachClientListener(client);
 
-      const ws = new WebSocket(config.clearnodeUrl);
-      log("Connecting to clearnode:", config.clearnodeUrl);
-      await waitForOpen(ws);
-      log("Clearnode connected.");
-
-      const sessionState: SessionState = {
-        ws,
-        clearnodeUrl: config.clearnodeUrl,
-        walletClient: config.walletClient,
-        walletAddress: config.address,
-        sessionPrivateKey,
-        sessionSigner,
-        sessionAddress: sessionAccount.address,
-        token: DEFAULT_TOKEN,
-        chainId,
-      };
-
-      sessionState.config = await fetchConfig(ws, sessionSigner);
-      sessionState.token = resolveToken(sessionState.config, chainId);
-      log("Resolved token:", sessionState.token);
-
-      const expiresAtSeconds =
-        Math.floor(Date.now() / 1000) + (config.expiresInSeconds ?? 3600);
-      const authParams = {
-        session_key: sessionState.sessionAddress,
-        allowances: config.allowances ?? [
-          {
-            asset: "ytest.usd",
-            amount: "1000000000",
-          },
-        ],
-        expires_at: BigInt(expiresAtSeconds),
-        scope: config.scope ?? "auction.app",
-      };
-
-      const authRequest = await createAuthRequestMessage({
-        address: config.address,
-        application: config.application ?? "Yellow Auction",
-        ...authParams,
-      });
-
-      logDebug("auth", "request params", {
-        address: config.address,
-        application: config.application ?? "Yellow Auction",
-        session_key: authParams.session_key,
-        scope: authParams.scope,
-        expires_at: authParams.expires_at.toString(),
-        allowances_count: authParams.allowances?.length ?? 0,
-        chainId,
-      });
-
-      log("Sending auth_request...");
-      config.onAuthRequest?.();
-      ws.send(authRequest);
-
-      const challenge = await waitForResponse(ws, "auth_challenge", 20000, "auth");
-      const challengeMessage = challenge?.res?.[2]?.challenge_message;
-      if (!challengeMessage) {
-        throw new Error("Missing auth challenge from Yellow.");
-      }
-      log("Received auth_challenge.");
-      logDebug("auth", "challenge info", {
-        length: String(challengeMessage).length,
-      });
-      config.onAuthChallenge?.();
-
-      const authSigner = createEIP712AuthMessageSigner(
-        config.walletClient,
-        authParams,
-        { name: config.application ?? "Yellow Auction" }
-      );
-
-      const verifyMsg = await createAuthVerifyMessageFromChallenge(
-        authSigner,
-        challengeMessage
-      );
-
-      log("Sending auth_verify (EIP-712)...");
-      config.onAuthVerify?.();
-      ws.send(verifyMsg);
-      await waitForResponse(ws, "auth_verify", 20000, "auth");
-      log("Authenticated.");
-      config.onAuthSuccess?.();
-
-      persistSessionKey(
-        sessionState.clearnodeUrl,
-        sessionState.walletAddress,
-        sessionState.chainId,
-        sessionState.sessionPrivateKey
-      );
-
-      activeSession = sessionState;
-      return sessionState;
+    const sessionState: SessionState = {
+      client,
+      clearnodeUrl: config.clearnodeUrl,
+      walletClient: config.walletClient,
+      walletAddress: config.address,
+      sessionPrivateKey,
+      sessionSigner,
+      sessionAddress: sessionAccount.address,
     };
 
-    return await createSession(storedSessionKey ?? undefined);
+    await authenticateWallet(sessionState, config);
+
+    persistSessionKey(
+      sessionState.clearnodeUrl,
+      sessionState.walletAddress,
+      sessionState.sessionPrivateKey
+    );
+
+    activeSession = sessionState;
+    return sessionState;
   })();
 
   try {
-    const result = await sessionPromise;
-    return result;
+    return await sessionPromise;
   } catch (error) {
     sessionPromise = null;
     sessionKey = null;
@@ -517,524 +296,108 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
   }
 };
 
-const detectOpenChannelId = async (sessionState: SessionState): Promise<`0x${string}` | null> => {
-  const nitrolite = await import("@erc7824/nitrolite");
-  const { NitroliteClient, WalletStateSigner } = nitrolite;
-  const viem = await import("viem");
-  const viemChains = await import("viem/chains");
-
-  const network = resolveNetwork(sessionState.config, sessionState.chainId);
-  const custody = network?.custody_address ?? network?.custodyAddress;
-  const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
-  if (!custody || !adjudicator) {
-    throw new Error("Missing custody/adjudicator addresses for selected chain.");
+const ensureSession = () => {
+  if (!activeSession) {
+    throw new Error("Yellow session not initialized.");
   }
-
-  const publicClient = viem.createPublicClient({
-    chain: sessionState.walletClient.chain ?? viemChains.sepolia,
-    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
-  });
-
-  const nitroliteClient = new NitroliteClient({
-    publicClient,
-    walletClient: sessionState.walletClient,
-    stateSigner: new WalletStateSigner(sessionState.walletClient),
-    addresses: {
-      custody,
-      adjudicator,
-    },
-    chainId: sessionState.chainId,
-    challengeDuration: 3600n,
-  });
-
-  log("Fetching open channels from L1...");
-  const openChannels = await nitroliteClient.getOpenChannels();
-  return (openChannels?.[0] as `0x${string}` | undefined) ?? null;
+  return activeSession;
 };
 
-export async function getLedgerBalances(): Promise<LedgerBalances> {
-  const sessionState = ensureSession();
-  const { createGetLedgerBalancesMessage } = await import("@erc7824/nitrolite");
-  await requestChannels(sessionState);
-  const channelsResp = await waitForResponse(
-    sessionState.ws,
-    "get_channels",
-    20000,
-    "ledger"
-  );
-  const channelsPayload =
-    channelsResp?.res?.[2] ?? channelsResp?.result ?? channelsResp?.params ?? {};
-
-  const ledgerMsg = await createGetLedgerBalancesMessage(
-    sessionState.sessionSigner,
-    sessionState.walletAddress,
-    Date.now()
-  );
-  log("Requesting ledger balances...");
-  sessionState.ws.send(ledgerMsg);
-  const ledgerResp = await waitForResponse(
-    sessionState.ws,
-    "get_ledger_balances",
-    20000,
-    "ledger"
-  );
-  const ledgerPayload = ledgerResp?.res?.[2] ?? ledgerResp?.result ?? ledgerResp?.params ?? {};
-
-  const channels = extractChannelsFromPayload(channelsPayload);
-  const targetChannelId = sessionState.channelId;
-  const openChannel =
-    channels.find((channel: any) => channel.channel_id === targetChannelId) ??
-    channels.find((channel: any) => channel.status === "open") ??
-    null;
-  const channelId =
-    (openChannel?.channel_id as `0x${string}` | undefined) ??
-    (sessionState.channelId as `0x${string}` | undefined) ??
-    null;
-  const channelAmount =
-    parseNumericValue(
-      openChannel?.amount ??
-        openChannel?.balance ??
-        openChannel?.total ??
-        openChannel?.balances ??
-        openChannel?.allocations
-    ) ?? 0;
-  const unified = extractUnifiedBalance(ledgerPayload);
-
-  log("Ledger balances fetched:", {
-    unifiedRaw: String(unified),
-    channelRaw: String(channelAmount),
-    channelId,
-  });
-
-  if (channelId && sessionState.channelId !== channelId) {
-    sessionState.channelId = channelId;
-    activeSession = sessionState;
-  }
-
-  return {
-    unifiedBalance: unified,
-    channelBalance: channelAmount,
-    channelId,
-  };
+export function getActiveSession() {
+  return activeSession;
 }
 
-export async function getDepositBalance(): Promise<DepositBalance> {
-  ensureBrowser();
-  const session = ensureSession();
-  const network = resolveNetwork(session.config, session.chainId);
-  const custody = network?.custody_address ?? network?.custodyAddress;
-  if (!custody) {
-    throw new Error("Missing custody address for selected chain.");
-  }
-
-  const viem = await import("viem");
-  const viemChains = await import("viem/chains");
-
-  const publicClient = viem.createPublicClient({
-    chain: session.walletClient.chain ?? viemChains.sepolia,
-    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
-  });
-
-  const balances = (await publicClient.readContract({
-    address: custody,
-    abi: [
-      {
-        type: "function",
-        name: "getAccountsBalances",
-        inputs: [
-          { name: "users", type: "address[]" },
-          { name: "tokens", type: "address[]" },
-        ],
-        outputs: [{ type: "uint256[]" }],
-        stateMutability: "view",
-      },
-    ] as const,
-    functionName: "getAccountsBalances",
-    args: [[session.walletAddress], [session.token]],
-  })) as bigint[];
-
-  log("Deposit balance fetched:", {
-    custodyRaw: (balances?.[0] ?? 0n).toString(),
-    walletAddress: session.walletAddress,
-    token: session.token,
-  });
-
-  return {
-    custodyBalance: fromMinorUnits(balances?.[0] ?? 0n),
-  };
+export async function connectYellowSession(config: YellowConnectionConfig) {
+  return connectSession(config);
 }
 
-export async function detectOpenChannel(
-  config: YellowConnectionConfig
-): Promise<`0x${string}` | null> {
-  ensureBrowser();
-  const sessionState = await connectSession(config);
-  const channelId = await detectOpenChannelId(sessionState);
-  if (channelId) {
-    sessionState.channelId = channelId;
-    activeSession = sessionState;
-    log("Found open channel:", sessionState.channelId);
-  } else {
-    log("No open channel detected.");
-  }
-  return channelId;
-}
-
-export async function openChannel(config: YellowConnectionConfig): Promise<string> {
-  ensureBrowser();
-
-  if (activeSession?.channelId) {
-    log("Reusing active channel:", activeSession.channelId);
-    return activeSession.channelId;
-  }
-
-  const nitrolite = await import("@erc7824/nitrolite");
-  const {
-    createCreateChannelMessage,
-    NitroliteClient,
-    WalletStateSigner,
-  } = nitrolite;
-  const viem = await import("viem");
-  const viemChains = await import("viem/chains");
-
-  const sessionState = await connectSession(config);
-
-  const existingChannelId = await detectOpenChannelId(sessionState);
-  if (existingChannelId) {
-    sessionState.channelId = existingChannelId;
-    activeSession = sessionState;
-    log("Found open channel:", sessionState.channelId);
-    return sessionState.channelId;
-  }
-
-  log("No open channel. Creating new channel...");
-  const createChannel = await createCreateChannelMessage(sessionState.sessionSigner, {
-    chain_id: sessionState.chainId,
-    token: sessionState.token,
-  });
-  console.log("DEBUG: Sending create_channel payload:", JSON.stringify(createChannel));
-  sessionState.ws.send(createChannel);
-  const created = await waitForResponse(
-    sessionState.ws,
-    "create_channel",
-    20000,
-    "create_channel"
-  );
-  const createParams = created?.res?.[2];
-  if (!createParams) {
-    throw new Error("Yellow did not return create_channel params.");
-  }
-
-  const rawChannelId =
-    (createParams.channel_id ?? createParams.channelId) as `0x${string}` | undefined;
-  const rawServerSignature =
-    (createParams.server_signature ?? createParams.serverSignature) as
-      | `0x${string}`
-      | undefined;
-  const rawState = createParams.state ?? {};
-  const rawChannel = createParams.channel ?? {};
-  const stateData = rawState.state_data ?? rawState.stateData;
-  const allocations = Array.isArray(rawState.allocations)
-    ? rawState.allocations
-    : [];
-
-  if (!rawChannelId || !rawServerSignature || !stateData) {
-    throw new Error("Yellow create_channel response missing required data.");
-  }
-
-  const network = resolveNetwork(sessionState.config, sessionState.chainId);
-  const custody = network?.custody_address ?? network?.custodyAddress;
-  const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
-  if (!custody || !adjudicator) {
-    throw new Error("Missing custody/adjudicator addresses for selected chain.");
-  }
-
-  const publicClient = viem.createPublicClient({
-    chain: sessionState.walletClient.chain ?? viemChains.sepolia,
-    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
-  });
-
-  const challengeDuration = BigInt(
-    Math.max(3600, Number(rawChannel.challenge ?? rawChannel.challengeDuration ?? 0))
-  );
-
-  const nitroliteClient = new NitroliteClient({
-    publicClient,
-    walletClient: sessionState.walletClient,
-    stateSigner: new WalletStateSigner(sessionState.walletClient),
-    addresses: {
-      custody,
-      adjudicator,
-    },
-    chainId: sessionState.chainId,
-    challengeDuration,
-  });
-
-  log("Submitting on-chain createChannel...");
-  const onChainResult = await nitroliteClient.createChannel({
-    channel: {
-      participants: rawChannel.participants ?? [],
-      adjudicator,
-      challenge: toBigInt(rawChannel.challenge),
-      nonce: toBigInt(rawChannel.nonce),
-    },
-    unsignedInitialState: {
-      intent: Number(rawState.intent ?? 0),
-      version: toBigInt(rawState.version),
-      data: stateData,
-      allocations: allocations.map((allocation: any) => ({
-        destination: allocation.destination,
-        token: allocation.token,
-        amount: toBigInt(allocation.amount),
-      })),
-    },
-    serverSignature: rawServerSignature,
-  });
-
-  sessionState.channelId = onChainResult.channelId as `0x${string}`;
-  log("Channel created on-chain:", sessionState.channelId, "tx:", onChainResult.txHash);
-  activeSession = sessionState;
-  return sessionState.channelId;
-}
-
-export async function signSessionMessage(payload: string): Promise<string> {
-  const session = ensureSession();
-  log("Signing session payload.");
-  return session.sessionSigner(payload);
-}
-
-export async function deposit(amount: number): Promise<void> {
-  const session = ensureSession();
-  const { createResizeChannelMessage } = await import("@erc7824/nitrolite");
-
-  if (!session.channelId) {
-    throw new Error("No active channel to deposit into. Call openChannel first.");
-  }
-
-  const rounded = amount;
-
-  const connectedWallet =
-    (session.walletClient.account?.address as `0x${string}` | undefined) ??
-    session.walletAddress;
-
-  log("Depositing (allocate_amount):", rounded);
-  const resizeMsg = await createResizeChannelMessage(session.sessionSigner, {
-    channel_id: session.channelId as `0x${string}`,
-    allocate_amount: BigInt(rounded),
-    funds_destination: connectedWallet,
-  });
-
-  session.ws.send(resizeMsg);
-  const resizeResponse = await waitForResponse(
-    session.ws,
-    "resize_channel",
-    20000,
-    "resize_channel"
-  );
-
-  const payload =
-    resizeResponse?.res?.[2] ?? resizeResponse?.result ?? resizeResponse?.params ?? {};
-  const channelId =
-    (payload.channel_id ?? payload.channelId ?? session.channelId) as `0x${string}`;
-  const serverSignature =
-    (payload.server_signature ?? payload.serverSignature) as `0x${string}` | undefined;
-  const state = payload.state ?? {};
-
-  if (!serverSignature || !channelId) {
-    throw new Error("Yellow resize_channel response missing required data.");
-  }
-
-  const allocations = Array.isArray(state.allocations) ? state.allocations : [];
-
-  const { NitroliteClient, WalletStateSigner } = await import("@erc7824/nitrolite");
-  const viem = await import("viem");
-  const viemChains = await import("viem/chains");
-
-  const network = resolveNetwork(session.config, session.chainId);
-  const custody = network?.custody_address ?? network?.custodyAddress;
-  const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
-  if (!custody || !adjudicator) {
-    throw new Error("Missing custody/adjudicator addresses for selected chain.");
-  }
-
-  const publicClient = viem.createPublicClient({
-    chain: session.walletClient.chain ?? viemChains.sepolia,
-    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
-  });
-
-  const nitroliteClient = new NitroliteClient({
-    publicClient,
-    walletClient: session.walletClient,
-    stateSigner: new WalletStateSigner(session.walletClient),
-    addresses: {
-      custody,
-      adjudicator,
-    },
-    chainId: session.chainId,
-    challengeDuration: 3600n,
-  });
-
-  const resizeState = {
-    intent: Number(state.intent ?? 0),
-    version: toBigInt(state.version),
-    data: state.state_data ?? state.data ?? "0x",
-    allocations: allocations.map((allocation: any) => ({
-      destination: allocation.destination,
-      token: allocation.token,
-      amount: toBigInt(allocation.amount),
-    })),
-    channelId,
-    serverSignature,
-  };
-
-  let proofStates: any[] = [];
+export async function disconnectYellowSession() {
+  if (!activeSession) return;
   try {
-    const onChainData = await nitroliteClient.getChannelData(channelId);
-    if (onChainData?.lastValidState) {
-      proofStates = [onChainData.lastValidState];
+    await activeSession.client.disconnect();
+  } finally {
+    if (clientUnsubscribe) {
+      clientUnsubscribe();
+      clientUnsubscribe = null;
     }
-  } catch (error) {
-    log("Unable to load channel data for proof states:", error);
+    clearStoredSessionKey(activeSession.clearnodeUrl, activeSession.walletAddress);
+    listeners.clear();
+    activeSession = null;
+    sessionKey = null;
+    sessionPromise = null;
   }
-
-  log("Submitting resize on-chain...");
-  const { txHash } = await nitroliteClient.resizeChannel({
-    resizeState,
-    proofStates,
-  });
-
-  log("Deposit confirmed on-chain:", txHash);
 }
 
-export async function withdraw(amount: number): Promise<void> {
-  void amount;
-  console.warn(
-    "Withdraw flow requires on-chain close/withdraw. Not implemented in the browser client yet."
-  );
+export function subscribeToMessages(handler: (message: RPCResponse) => void) {
+  listeners.add(handler);
+  return () => {
+    listeners.delete(handler);
+  };
 }
 
-export type TransferRequest = {
-  destination: `0x${string}`;
-  amount: string;
-  asset?: string;
-};
-
-export async function transfer(request: TransferRequest): Promise<void> {
-  ensureBrowser();
+export async function createAppSession(
+  input: CreateAppSessionInput
+): Promise<CreateAppSessionResult> {
   const session = ensureSession();
-  const { createTransferMessage } = await import("@erc7824/nitrolite");
+  const defaultWeight = Math.floor(100 / input.participants.length);
+  const definition: RPCAppDefinition = {
+    protocol: input.protocol ?? RPCProtocolVersion.NitroRPC_0_4,
+    participants: input.participants,
+    weights: input.weights ?? input.participants.map(() => defaultWeight),
+    quorum: input.quorum ?? 100,
+    challenge: input.challenge ?? 0,
+    nonce: input.nonce ?? Date.now(),
+    application: input.application ?? "Yellow Auction",
+  };
 
-  if (session.ws.readyState !== WebSocket.OPEN) {
-    throw new Error("WebSocket is not connected.");
-  }
-  if (!request.destination) {
-    throw new Error("Destination address is required.");
-  }
-  if (!request.amount) {
-    throw new Error("Transfer amount is required.");
+  const message = await createAppSessionMessage(session.sessionSigner, {
+    definition,
+    allocations: input.allocations,
+  });
+
+  const response = (await session.client.sendMessage(
+    message
+  )) as RPCResponse;
+
+  const params = (response as any)?.params ?? (response as any)?.res?.[2] ?? {};
+  const appSessionId =
+    (params?.app_session_id ?? params?.appSessionId) as `0x${string}`;
+
+  if (!appSessionId) {
+    throw new Error("Yellow did not return app_session_id.");
   }
 
-  const transferMsg = await createTransferMessage(
-    session.sessionSigner,
-    {
-      destination: request.destination,
-      allocations: [
-        {
-          asset: request.asset ?? "ytest.usd",
-          amount: request.amount,
-        },
-      ],
-    },
-    Date.now()
-  );
-
-  session.ws.send(transferMsg);
-  log("Transfer message sent.");
+  return {
+    appSessionId,
+    version: params?.version,
+    status: params?.status,
+    response,
+  };
 }
 
-export async function closeChannel(): Promise<string> {
-  ensureBrowser();
+export async function submitAppState(input: SubmitAppStateInput) {
   const session = ensureSession();
-  if (!session.channelId) {
-    throw new Error("No active channel to close.");
-  }
+  const params = {
+    app_session_id: input.appSessionId,
+    allocations: input.allocations,
+    version: input.version,
+    intent: input.intent ?? RPCAppStateIntent.Operate,
+    ...(input.sessionData ? { session_data: input.sessionData } : {}),
+  };
 
-  const nitrolite = await import("@erc7824/nitrolite");
-  const { createCloseChannelMessage, NitroliteClient, WalletStateSigner } = nitrolite;
-  const viem = await import("viem");
-  const viemChains = await import("viem/chains");
-
-  log("Sending close_channel request...");
-  const closeMsg = await createCloseChannelMessage(
+  const message = await createSubmitAppStateMessage(
     session.sessionSigner,
-    session.channelId as `0x${string}`,
-    session.walletAddress
+    params
   );
-  session.ws.send(closeMsg);
-  const closeResponse = await waitForResponse(
-    session.ws,
-    "close_channel",
-    30000,
-    "close_channel"
-  );
-  const payload = closeResponse?.res?.[2];
-  if (!payload) {
-    throw new Error("Yellow did not return close_channel data.");
-  }
 
-  const network = resolveNetwork(session.config, session.chainId);
-  const custody = network?.custody_address ?? network?.custodyAddress;
-  const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
-  if (!custody || !adjudicator) {
-    throw new Error("Missing custody/adjudicator addresses for selected chain.");
-  }
+  return session.client.sendMessage(message);
+}
 
-  const publicClient = viem.createPublicClient({
-    chain: session.walletClient.chain ?? viemChains.sepolia,
-    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
+export async function closeAppSession(input: CloseAppSessionInput) {
+  const session = ensureSession();
+  const message = await createCloseAppSessionMessage(session.sessionSigner, {
+    app_session_id: input.appSessionId,
+    allocations: input.allocations,
   });
-
-  const nitroliteClient = new NitroliteClient({
-    publicClient,
-    walletClient: session.walletClient,
-    stateSigner: new WalletStateSigner(session.walletClient),
-    addresses: {
-      custody,
-      adjudicator,
-    },
-    chainId: session.chainId,
-    challengeDuration: 3600n,
-  });
-
-  const state = payload.state ?? {};
-  const channelId =
-    (payload.channel_id ?? payload.channelId ?? session.channelId) as `0x${string}`;
-
-  const txHash = await nitroliteClient.closeChannel({
-    finalState: {
-      intent: Number(state.intent ?? 0),
-      version: toBigInt(state.version),
-      data: state.state_data || state.data || "0x",
-      allocations: (state.allocations ?? []).map((allocation: any) => ({
-        destination: allocation.destination,
-        token: allocation.token,
-        amount: toBigInt(allocation.amount),
-      })),
-      channelId,
-      serverSignature:
-        (payload.server_signature ?? payload.serverSignature) as `0x${string}`,
-    },
-    stateData: state.state_data || state.data || "0x",
-  });
-
-  log("Channel closed on-chain:", txHash);
-  try {
-    session.ws.close();
-  } catch (error) {
-    console.warn("[yellowClient] Failed to close WebSocket", error);
-  }
-  activeSession = null;
-  sessionKey = null;
-  sessionPromise = null;
-  return typeof txHash === "string" ? txHash : txHash?.toString?.() ?? "";
+  return session.client.sendMessage(message);
 }

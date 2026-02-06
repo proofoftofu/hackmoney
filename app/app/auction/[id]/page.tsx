@@ -1,34 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bolt,
   Gavel,
   ShieldCheck,
   Timer,
-  Wallet,
   Waves,
 } from "lucide-react";
+import { useParams } from "next/navigation";
 import { useAuctionSession } from "../../hooks/useAuctionSession";
 import { useYellow } from "../../hooks/useYellow";
 
+const DEFAULT_SELLER: `0x${string}` =
+  "0xF39fd6e51aad88F6F4ce6aB8827279cffFb92266";
+
+const AUCTION_SELLERS: Record<string, `0x${string}`> = {
+  aurora: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+  zenith: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+  lumen: "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
+  pulse: "0x14dC79964da2C08b23698B3D3cc7Ca32193d9955",
+};
+
 export default function AuctionDetailPage() {
+  const params = useParams<{ id: string }>();
+  const auctionId = useMemo(() => {
+    const raw = params?.id;
+    if (Array.isArray(raw)) return raw[0] ?? "aurora";
+    return raw ?? "aurora";
+  }, [params]);
+  const sellerAddress = AUCTION_SELLERS[auctionId] ?? DEFAULT_SELLER;
   const {
+    sessionId,
     currentPrice,
     formattedTime,
     timeLeft,
     lastBidder,
     history,
     placeBid,
-  } = useAuctionSession("aurora");
-  const { transfer } = useYellow();
+  } = useAuctionSession(auctionId, sellerAddress);
+  const { isConnected } = useYellow();
   const [isSigning, setIsSigning] = useState(false);
-  const [transferAddress, setTransferAddress] = useState("");
-  const [transferAmount, setTransferAmount] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [sendSuccess, setSendSuccess] = useState<string | null>(null);
 
   const handleBid = async () => {
     if (isSigning) return;
@@ -36,37 +49,6 @@ export default function AuctionDetailPage() {
     await new Promise((resolve) => setTimeout(resolve, 600));
     await placeBid();
     setIsSigning(false);
-  };
-
-  const handleSend = async () => {
-    if (isSending) return;
-    setSendError(null);
-    setSendSuccess(null);
-
-    const trimmedAddress = transferAddress.trim();
-    const trimmedAmount = transferAmount.trim();
-    const amountValue = Number(trimmedAmount);
-    if (!trimmedAddress) {
-      setSendError("Enter a destination address.");
-      return;
-    }
-    if (!trimmedAmount || Number.isNaN(amountValue) || amountValue <= 0) {
-      setSendError("Enter a valid amount.");
-      return;
-    }
-
-    setIsSending(true);
-    try {
-      await transfer(trimmedAddress as `0x${string}`, trimmedAmount);
-      setSendSuccess("Transfer sent.");
-      setTransferAmount("");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to send transfer.";
-      setSendError(message);
-    } finally {
-      setIsSending(false);
-    }
   };
 
   return (
@@ -82,12 +64,16 @@ export default function AuctionDetailPage() {
                 Aurora Smartwatch
               </h1>
               <p className="mt-2 text-sm text-zinc-400">
-                Retail value $289 · Session ID AUC-91F1
+                Retail value $289 · Session ID {sessionId ?? "Pending"}
               </p>
             </div>
             <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-zinc-300">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              Channel: Synced
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  isConnected ? "bg-emerald-400" : "bg-amber-300"
+                }`}
+              />
+              Session: {isConnected ? "Live" : "Waiting"}
             </div>
           </div>
 
@@ -95,7 +81,7 @@ export default function AuctionDetailPage() {
             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-amber-400/20 via-transparent to-transparent p-6">
               <div className="absolute right-6 top-6 flex items-center gap-2 rounded-full border border-white/20 bg-black/40 px-3 py-1 text-xs text-zinc-200">
                 <Waves className="h-4 w-4 text-amber-300" />
-                State Channel
+                App Session
               </div>
               <div className="mt-10 flex h-56 items-center justify-center rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,_rgba(250,204,21,0.25),_transparent_60%)] text-4xl font-semibold text-amber-200">
                 AUR-01
@@ -164,11 +150,11 @@ export default function AuctionDetailPage() {
               <div className="grid gap-3 text-sm text-zinc-400">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-emerald-300" />
-                  Bids are escrowed via unified balance.
+                  Bids update the app session state.
                 </div>
                 <div className="flex items-center gap-2">
-                  <Wallet className="h-4 w-4 text-amber-300" />
-                  Estimated bid fee: $0.01.
+                  <ShieldCheck className="h-4 w-4 text-amber-300" />
+                  Seller participates as a signed session member.
                 </div>
               </div>
             </div>
@@ -181,11 +167,9 @@ export default function AuctionDetailPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                Live State Channel Feed
+                Live Session Feed
               </p>
-              <p className="mt-2 text-lg font-semibold text-white">
-                Bid History
-              </p>
+              <p className="mt-2 text-lg font-semibold text-white">Bid History</p>
             </div>
             <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-amber-200">
               {history.length} events
@@ -221,52 +205,6 @@ export default function AuctionDetailPage() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-6">
-          <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-            Send Transfer
-          </p>
-          <p className="mt-2 text-lg font-semibold text-white">
-            Wallet payout
-          </p>
-
-          <div className="mt-5 grid gap-3">
-            <label className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-              Destination address
-            </label>
-            <input
-              value={transferAddress}
-              onChange={(event) => setTransferAddress(event.target.value)}
-              placeholder="0x..."
-              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-amber-300/60 focus:outline-none"
-            />
-            <label className="mt-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
-              Amount (ytest.usd)
-            </label>
-            <input
-              value={transferAmount}
-              onChange={(event) => setTransferAmount(event.target.value)}
-              placeholder="10"
-              inputMode="decimal"
-              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-amber-300/60 focus:outline-none"
-            />
-
-            <button
-              onClick={handleSend}
-              disabled={isSending}
-              className="mt-2 rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/20 disabled:cursor-wait"
-            >
-              {isSending ? "Sending..." : "Send transfer"}
-            </button>
-
-            {sendError ? (
-              <p className="text-xs text-red-300">{sendError}</p>
-            ) : null}
-            {sendSuccess ? (
-              <p className="text-xs text-emerald-300">{sendSuccess}</p>
-            ) : null}
-          </div>
-        </div>
-
         <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-amber-400/10 via-transparent to-transparent p-6">
           <p className="text-xs uppercase tracking-[0.2em] text-amber-200">
             Session Metrics
@@ -274,15 +212,19 @@ export default function AuctionDetailPage() {
           <div className="mt-4 grid gap-3 text-sm text-zinc-300">
             <div className="flex items-center justify-between">
               <span>State updates</span>
-              <span className="font-semibold text-white">128</span>
+              <span className="font-semibold text-white">{history.length}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Average latency</span>
-              <span className="font-semibold text-white">92ms</span>
+              <span>Latest version</span>
+              <span className="font-semibold text-white">
+                {history[0]?.version ?? 0}
+              </span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Channel escrow</span>
-              <span className="font-semibold text-white">$18.40</span>
+              <span>Seller address</span>
+              <span className="font-mono text-xs text-amber-200">
+                {sellerAddress}
+              </span>
             </div>
           </div>
         </div>
