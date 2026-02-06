@@ -485,6 +485,12 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
     pickNumeric(openChannel?.amount ?? openChannel?.balance ?? openChannel?.total) ?? 0n;
   const unified = extractUnifiedBalance(payload);
 
+  log("Ledger balances fetched:", {
+    unifiedRaw: unified.toString(),
+    channelRaw: channelAmount.toString(),
+    channelId,
+  });
+
   if (channelId && sessionState.channelId !== channelId) {
     sessionState.channelId = channelId;
     activeSession = sessionState;
@@ -531,6 +537,12 @@ export async function getDepositBalance(): Promise<DepositBalance> {
     functionName: "getAccountsBalances",
     args: [[session.walletAddress], [session.token]],
   })) as bigint[];
+
+  log("Deposit balance fetched:", {
+    custodyRaw: (balances?.[0] ?? 0n).toString(),
+    walletAddress: session.walletAddress,
+    token: session.token,
+  });
 
   return {
     custodyBalance: fromMinorUnits(balances?.[0] ?? 0n),
@@ -683,11 +695,15 @@ export async function deposit(amount: number): Promise<void> {
   const rounded = Math.max(0, Math.round(amount * 100));
   if (rounded === 0) return;
 
+  const connectedWallet =
+    (session.walletClient.account?.address as `0x${string}` | undefined) ??
+    session.walletAddress;
+
   log("Depositing (allocate_amount):", rounded);
   const resizeMsg = await createResizeChannelMessage(session.sessionSigner, {
     channel_id: session.channelId as `0x${string}`,
     allocate_amount: BigInt(rounded),
-    funds_destination: session.walletAddress,
+    funds_destination: connectedWallet,
   });
 
   session.ws.send(resizeMsg);
