@@ -362,9 +362,14 @@ export function useAuctionSession(
     const mockSignature = `0xmock-${Date.now().toString(16)}`;
     console.log("[yellow] closeOrder", { auctionId, sessionId, mockSignature });
 
+    const sellerAmount = Number((totalFees + currentPrice).toFixed(2));
     const allocations: RPCAppSessionAllocation[] = [
-      { participant: sellerAddress, asset: "ytest.usd", amount: currentPrice.toFixed(2) },
-      { participant: walletAddress, asset: "ytest.usd", amount: "0.00" },
+      { participant: sellerAddress, asset: "ytest.usd", amount: sellerAmount.toFixed(2) },
+      {
+        participant: walletAddress,
+        asset: "ytest.usd",
+        amount: Math.max(0, budget - sellerAmount).toFixed(2),
+      },
     ];
 
     await closeAppSession({
@@ -373,7 +378,16 @@ export function useAuctionSession(
     });
 
     return mockSignature;
-  }, [auctionId, sessionId, walletAddress, sellerAddress, currentPrice, closeAppSession]);
+  }, [
+    auctionId,
+    sessionId,
+    walletAddress,
+    sellerAddress,
+    currentPrice,
+    totalFees,
+    budget,
+    closeAppSession,
+  ]);
 
   return {
     sessionId,
