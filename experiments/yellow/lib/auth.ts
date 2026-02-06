@@ -2,7 +2,7 @@ import { AuthChallengeResponse, createAuthRequestMessage, createEIP712AuthMessag
 import { Client } from 'yellow-ts';
 
 import { createWalletClient, http, WalletClient } from 'viem'
-import { base } from 'viem/chains'
+import { sepolia } from 'viem/chains'
 import { generateSessionKey, SessionKey } from './utils';
 
 import { config } from 'dotenv'
@@ -25,7 +25,7 @@ export async function authenticateWallet(client: Client, walletAccount: WalletCl
 
     const customWalletClient = createWalletClient({
         account: walletAccount.account,
-        chain: base,
+        chain: sepolia,
         transport: http(),
     });
 
