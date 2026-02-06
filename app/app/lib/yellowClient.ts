@@ -176,6 +176,19 @@ const waitForResponse = (
     ws.addEventListener("message", handler);
   });
 
+const extractResponseMethod = (message: any): string | undefined =>
+  message?.method ?? message?.res?.[1];
+
+const extractChannelsFromPayload = (payload: any): any[] => {
+  return (
+    payload?.channels ??
+    payload?.result?.channels ??
+    payload?.ledger?.channels ??
+    payload?.result?.ledger?.channels ??
+    []
+  );
+};
+
 const fetchConfig = async (
   ws: WebSocket,
   sessionSigner: ReturnType<typeof createECDSAMessageSigner>
@@ -428,28 +441,38 @@ const connectSession = async (config: YellowConnectionConfig): Promise<SessionSt
 };
 
 const detectOpenChannelId = async (sessionState: SessionState): Promise<`0x${string}` | null> => {
-  const { createGetLedgerBalancesMessage } = await import("@erc7824/nitrolite");
-  const ledgerMsg = await createGetLedgerBalancesMessage(
-    sessionState.sessionSigner,
-    sessionState.walletAddress,
-    Date.now()
-  );
-  log("Requesting ledger balances (channels)...");
-  sessionState.ws.send(ledgerMsg);
-  const channelsResp = await waitForResponse(
-    sessionState.ws,
-    ["channels", "get_ledger_balances"],
-    20000,
-    "ledger"
-  );
-  const payload = channelsResp?.res?.[2] ?? channelsResp?.params ?? {};
-  const channels =
-    payload?.channels ??
-    payload?.result?.channels ??
-    payload?.ledger?.channels ??
-    [];
-  const openChannel = channels.find((channel: any) => channel.status === "open");
-  return (openChannel?.channel_id as `0x${string}` | undefined) ?? null;
+  const nitrolite = await import("@erc7824/nitrolite");
+  const { NitroliteClient, WalletStateSigner } = nitrolite;
+  const viem = await import("viem");
+  const viemChains = await import("viem/chains");
+
+  const network = resolveNetwork(sessionState.config, sessionState.chainId);
+  const custody = network?.custody_address ?? network?.custodyAddress;
+  const adjudicator = network?.adjudicator_address ?? network?.adjudicatorAddress;
+  if (!custody || !adjudicator) {
+    throw new Error("Missing custody/adjudicator addresses for selected chain.");
+  }
+
+  const publicClient = viem.createPublicClient({
+    chain: sessionState.walletClient.chain ?? viemChains.sepolia,
+    transport: viem.http(ALCHEMY_RPC_URL || FALLBACK_RPC_URL),
+  });
+
+  const nitroliteClient = new NitroliteClient({
+    publicClient,
+    walletClient: sessionState.walletClient,
+    stateSigner: new WalletStateSigner(sessionState.walletClient),
+    addresses: {
+      custody,
+      adjudicator,
+    },
+    chainId: sessionState.chainId,
+    challengeDuration: 3600n,
+  });
+
+  log("Fetching open channels from L1...");
+  const openChannels = await nitroliteClient.getOpenChannels();
+  return (openChannels?.[0] as `0x${string}` | undefined) ?? null;
 };
 
 export async function getLedgerBalances(): Promise<LedgerBalances> {
@@ -462,18 +485,19 @@ export async function getLedgerBalances(): Promise<LedgerBalances> {
   );
   log("Requesting ledger balances...");
   sessionState.ws.send(ledgerMsg);
-  const ledgerResp = await waitForResponse(
+  let ledgerResp = await waitForResponse(
     sessionState.ws,
     ["channels", "get_ledger_balances"],
     20000,
     "ledger"
   );
-  const payload = ledgerResp?.res?.[2] ?? ledgerResp?.params ?? {};
-  const channels =
-    payload?.channels ??
-    payload?.result?.channels ??
-    payload?.ledger?.channels ??
-    [];
+  let payload = ledgerResp?.res?.[2] ?? ledgerResp?.params ?? {};
+  let channels = extractChannelsFromPayload(payload);
+  if (extractResponseMethod(ledgerResp) !== "channels" && channels.length === 0) {
+    ledgerResp = await waitForResponse(sessionState.ws, "channels", 8000, "ledger");
+    payload = ledgerResp?.res?.[2] ?? ledgerResp?.params ?? {};
+    channels = extractChannelsFromPayload(payload);
+  }
   const targetChannelId = sessionState.channelId;
   const openChannel =
     channels.find((channel: any) => channel.channel_id === targetChannelId) ??
