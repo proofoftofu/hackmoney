@@ -68,8 +68,10 @@ async function mockStateChannelSettlement(channelId: string) {
     const bidder = sdkKeypair.getPublicKey().toSuiAddress();
     const message = new TextEncoder().encode(`bid:${amount}`);
 
-    const { signature } = await sdkKeypair.signPersonalMessage(message);
-    const rawSignature = fromBase64(signature).slice(1, 65);
+    // const { signature } = await sdkKeypair.signPersonalMessage(message);
+    // const rawSignature = fromBase64(signature).slice(1, 65);
+    const rawSignature = await sdkKeypair.sign(message);
+
 
     const tx = new Transaction();
     tx.moveCall({
